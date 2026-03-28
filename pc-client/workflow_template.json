@@ -64,7 +64,7 @@
       "resize_mode": "pad",
       "upscale_method": "lanczos",
       "resolution": "",
-      "image": ["175", 0]
+      "image": ["177", 0]
     },
     "class_type": "ImageScaleToTotalPixelsX",
     "_meta": { "title": "Image 1" }
@@ -98,7 +98,7 @@
       "resize_mode": "pad",
       "upscale_method": "lanczos",
       "resolution": "",
-      "image": ["176", 0]
+      "image": ["178", 0]
     },
     "class_type": "ImageScaleToTotalPixelsX",
     "_meta": { "title": "Image 2" }
@@ -167,22 +167,18 @@
     "class_type": "ClipLoaderGGUF",
     "_meta": { "title": "GGUF CLIP Loader" }
   },
-  "175": {
+  "177": {
     "inputs": {
-      "base64_data": "",
-      "image_output": "Preview",
-      "save_prefix": "ComfyUI"
+      "image": ""
     },
-    "class_type": "easy loadImageBase64",
-    "_meta": { "title": "image1 (base64)" }
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image 1" }
   },
-  "176": {
+  "178": {
     "inputs": {
-      "base64_data": "",
-      "image_output": "Preview",
-      "save_prefix": "ComfyUI"
+      "image": ""
     },
-    "class_type": "easy loadImageBase64",
-    "_meta": { "title": "image2 (base64)" }
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image 2" }
   }
 }

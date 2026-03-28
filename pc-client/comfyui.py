@@ -6,16 +6,20 @@ images, seed, steps, sampler), submits it to the local ComfyUI HTTP API,
 waits for completion via WebSocket, then downloads and returns the output
 image bytes.
 
+Images are uploaded to ComfyUI's input directory via POST /upload/image
+before the prompt is queued. Each upload uses a UUID-prefixed filename to
+avoid collisions between concurrent jobs. The native LoadImage nodes (177/178)
+then reference those filenames instead of embedding base64 data.
+
 Workflow image-count modes
 --------------------------
-  2 images  — both image1 + image2 injected as base64; full node graph active
-  1 image   — only image1 injected; image2 chain (nodes 133/176/159/161/118)
+  2 images  — both uploaded; nodes 177 + 178 reference their filenames
+  1 image   — image1 uploaded; image2 chain (nodes 178/133/159/161/118)
               and the node 156 image2 ref are removed
   0 images  — all image nodes removed; latent size hardcoded to 1024×1024
 """
 
 import asyncio
-import base64
 import copy
 import json
 import logging
@@ -38,18 +42,19 @@ _WORKFLOW_TEMPLATE: dict = json.loads(_TEMPLATE_PATH.read_text())
 
 def _build_workflow(
     prompt: str,
-    image1: bytes | None,
-    image2: bytes | None,
+    image1_name: str | None,
+    image2_name: str | None,
     seed: int,
     steps: int,
     sampler: str,
 ) -> dict:
     """
     Deep-copy the template and inject job-specific parameters.
-    Prunes nodes that are not needed based on how many images are provided.
+    image1_name / image2_name are filenames already uploaded to ComfyUI's
+    input directory. Nodes not needed for the given image count are pruned.
     """
     wf = copy.deepcopy(_WORKFLOW_TEMPLATE)
-    num_images = (1 if image1 else 0) + (1 if image2 else 0)
+    num_images = (1 if image1_name else 0) + (1 if image2_name else 0)
 
     # ── Scalar params (always) ─────────────────────────────────────────────────
     wf["99"]["inputs"]["sampler_name"] = sampler
@@ -58,22 +63,21 @@ def _build_workflow(
     wf["156"]["inputs"]["prompt"] = prompt
     wf["156"]["inputs"]["max_images_allowed"] = str(num_images)
 
-    # ── Image injection + node pruning ─────────────────────────────────────────
+    # ── Image filename injection + node pruning ────────────────────────────────
     if num_images == 2:
-        wf["175"]["inputs"]["base64_data"] = base64.b64encode(image1).decode()
-        wf["176"]["inputs"]["base64_data"] = base64.b64encode(image2).decode()
+        wf["177"]["inputs"]["image"] = image1_name
+        wf["178"]["inputs"]["image"] = image2_name
 
     elif num_images == 1:
-        img = image1 or image2
-        wf["175"]["inputs"]["base64_data"] = base64.b64encode(img).decode()
+        wf["177"]["inputs"]["image"] = image1_name or image2_name
         # Remove the image2 input chain and the comparison/concat nodes that depend on it
-        for nid in ("176", "133", "159", "161", "118"):
+        for nid in ("178", "133", "159", "161", "118"):
             wf.pop(nid, None)
         wf["156"]["inputs"].pop("image2", None)
         # Node 119 (Image Comparer: image_a=["115",0], image_b=["101",0]) stays valid
 
     else:  # 0 images — pure text generation
-        for nid in ("175", "176", "133", "115", "159", "161", "118", "119"):
+        for nid in ("177", "178", "133", "115", "159", "161", "118", "119"):
             wf.pop(nid, None)
         # Hardcode latent size since the image-derived size nodes are gone
         wf["106"]["inputs"]["width"] = 1024
@@ -84,6 +88,39 @@ def _build_workflow(
         wf["156"]["inputs"].pop("image2", None)
 
     return wf
+
+
+async def _upload_image(
+    session: aiohttp.ClientSession,
+    image_bytes: bytes,
+    filename: str,
+) -> str:
+    """
+    Upload image bytes to ComfyUI's input directory.
+    Returns the server-confirmed filename to use in the workflow.
+    """
+    form = aiohttp.FormData()
+    form.add_field(
+        "image",
+        image_bytes,
+        filename=filename,
+        content_type="image/png",
+    )
+    form.add_field("overwrite", "true")
+    async with session.post(f"{COMFYUI_URL}/upload/image", data=form) as resp:
+        if resp.status != 200:
+            body = await resp.text()
+            raise RuntimeError(
+                f"ComfyUI /upload/image failed (HTTP {resp.status}): {body}"
+            )
+        result = await resp.json()
+    confirmed = result.get("name")
+    if not confirmed:
+        raise RuntimeError(
+            f"ComfyUI /upload/image returned unexpected response: {result}"
+        )
+    log.info(f"[comfyui] Uploaded {filename!r} → confirmed as {confirmed!r}")
+    return confirmed
 
 
 # ── ComfyUI API communication ──────────────────────────────────────────────────
@@ -106,7 +143,6 @@ async def process_job(
       3. GET /history/{prompt_id}  →  output filename from node "117"
       4. GET /view?filename=...  →  raw image bytes
     """
-    workflow = _build_workflow(prompt, image1, image2, seed, steps, sampler)
     client_id = str(uuid.uuid4())
 
     parsed = urlparse(COMFYUI_URL)
@@ -120,6 +156,22 @@ async def process_job(
     )
 
     async with aiohttp.ClientSession() as session:
+        # ── Step 0: Upload images to ComfyUI input directory ──────────────────
+        image1_name: str | None = None
+        image2_name: str | None = None
+        if image1:
+            image1_name = await _upload_image(
+                session, image1, f"{client_id}_1.png"
+            )
+        if image2:
+            image2_name = await _upload_image(
+                session, image2, f"{client_id}_2.png"
+            )
+
+        workflow = _build_workflow(
+            prompt, image1_name, image2_name, seed, steps, sampler
+        )
+
         # ── Step 1: POST /prompt ───────────────────────────────────────────────
         async with session.post(
             f"{COMFYUI_URL}/prompt",
