@@ -86,6 +86,7 @@ def _build_workflow(
         wf["109"]["inputs"]["height"] = 1024
         wf["156"]["inputs"].pop("image1", None)
         wf["156"]["inputs"].pop("image2", None)
+        wf["156"]["inputs"].pop("vae", None)  # VAE is only used for VL image encoding
 
     return wf
 
@@ -121,6 +122,17 @@ async def _upload_image(
         )
     log.info(f"[comfyui] Uploaded {filename!r} → confirmed as {confirmed!r}")
     return confirmed
+
+
+def _detect_extension(image_bytes: bytes) -> str:
+    """Return the file extension that matches the image's actual format."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if image_bytes[:4] == b"\x89PNG":
+        return ".png"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return ".webp"
+    return ".png"  # safe fallback — PIL will handle it
 
 
 # ── ComfyUI API communication ──────────────────────────────────────────────────
@@ -160,12 +172,14 @@ async def process_job(
         image1_name: str | None = None
         image2_name: str | None = None
         if image1:
+            ext1 = _detect_extension(image1)
             image1_name = await _upload_image(
-                session, image1, f"{client_id}_1.png"
+                session, image1, f"{client_id}_1{ext1}"
             )
         if image2:
+            ext2 = _detect_extension(image2)
             image2_name = await _upload_image(
-                session, image2, f"{client_id}_2.png"
+                session, image2, f"{client_id}_2{ext2}"
             )
 
         workflow = _build_workflow(
@@ -226,10 +240,16 @@ async def process_job(
                 elif mtype == "execution_error":
                     d = msg.get("data", {})
                     if d.get("prompt_id") == prompt_id:
-                        raise RuntimeError(
-                            f"ComfyUI execution error: "
-                            f"{d.get('exception_message', 'unknown error')}"
+                        node_id   = d.get("node_id", "?")
+                        node_type = d.get("node_type", "?")
+                        exc_msg   = d.get("exception_message", "unknown error")
+                        tb_lines  = d.get("traceback", [])
+                        tb_str    = "".join(tb_lines).strip() if tb_lines else ""
+                        detail    = (
+                            f"node {node_id} ({node_type}): {exc_msg}"
+                            + (f"\n{tb_str}" if tb_str else "")
                         )
+                        raise RuntimeError(f"ComfyUI execution error: {detail}")
 
         # ── Step 3: GET /history → find output image filename ──────────────────
         async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
