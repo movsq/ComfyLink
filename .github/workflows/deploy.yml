@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Required GitHub Repository Secrets
+# (Settings → Secrets and variables → Actions → New repository secret)
+#
+#   1. VPS_HOST         — SSH-reachable address of your VPS (IP or hostname)
+#   2. VPS_USER         — SSH username on the VPS (e.g. "root")
+#   3. SSH_PRIVATE_KEY  — Private SSH key authorised to log in to the VPS
+#   4. VPS_PATH         — Deployment directory on the VPS
+#                         (e.g. "/root/comfylink-server")
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual runs from the GitHub Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build Svelte frontend
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+
+      # ── Upload files to VPS ──────────────────────────────────────────────────
+      # Uploads:
+      #   - server/         (Node.js relay source — Docker builds it on the VPS)
+      #   - client/dist/    (pre-built Svelte frontend, served by Caddy directly)
+      #   - docker-compose.yml + Caddyfile (root-level orchestration)
+      #
+      # NOT uploaded: .env (create it once manually on the VPS — see README)
+
+      - name: Upload server source
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "server/"
+          target: ${{ secrets.VPS_PATH }}
+          strip_components: 0
+
+      - name: Upload built frontend
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "client/dist/"
+          target: ${{ secrets.VPS_PATH }}
+          strip_components: 0
+
+      - name: Upload docker-compose and Caddyfile
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.yml,Caddyfile"
+          target: ${{ secrets.VPS_PATH }}
+
+      # ── Restart Docker on VPS ────────────────────────────────────────────────
+
+      - name: Restart Docker services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.VPS_PATH }}
+            # Remove stale server node_modules (compiled on different OS)
+            rm -rf server/node_modules
+            docker compose up -d --build --force-recreate
+            docker image prune -f

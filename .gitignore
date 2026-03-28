@@ -1,0 +1,23 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+.venv/
+
+# ── Secrets / environment ─────────────────────────────────────────────────────
+.env
+*.pem
+
+# ── Build output ──────────────────────────────────────────────────────────────
+# client/dist is built fresh by GitHub Actions on every deploy.
+client/dist/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

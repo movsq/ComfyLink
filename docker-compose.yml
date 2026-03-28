@@ -1,0 +1,31 @@
+services:
+  server:
+    build: ./server
+    restart: unless-stopped
+    # No ports exposed to host — Caddy is the only public entry point.
+    environment:
+      - PORT=3000
+      - PIN=${PIN}
+      - SESSION_TTL_MS=${SESSION_TTL_MS:-86400000}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Caddy uses COMFYLINK_HOST as the site address in the Caddyfile ({$COMFYLINK_HOST}).
+      - COMFYLINK_HOST=${COMFYLINK_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Built Svelte frontend is served as static files by Caddy directly.
+      - ./client/dist:/var/www/html:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+volumes:
+  caddy_data:
+  caddy_config:

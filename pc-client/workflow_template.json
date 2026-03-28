@@ -1,0 +1,188 @@
+{
+  "99": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": { "title": "KSamplerSelect" }
+  },
+  "100": {
+    "inputs": {
+      "noise": ["102", 0],
+      "guider": ["139", 0],
+      "sampler": ["99", 0],
+      "sigmas": ["109", 0],
+      "latent_image": ["106", 0]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": { "title": "SamplerCustomAdvanced" }
+  },
+  "101": {
+    "inputs": {
+      "samples": ["100", 0],
+      "vae": ["105", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "102": {
+    "inputs": {
+      "noise_seed": 0
+    },
+    "class_type": "RandomNoise",
+    "_meta": { "title": "RandomNoise" }
+  },
+  "105": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "106": {
+    "inputs": {
+      "width": ["115", 1],
+      "height": ["115", 2],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": { "title": "Empty Flux 2 Latent" }
+  },
+  "109": {
+    "inputs": {
+      "steps": 4,
+      "width": ["115", 1],
+      "height": ["115", 2]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": { "title": "Flux2Scheduler" }
+  },
+  "115": {
+    "inputs": {
+      "megapixels": 1,
+      "multiple_of": 16,
+      "resize_mode": "pad",
+      "upscale_method": "lanczos",
+      "resolution": "",
+      "image": ["175", 0]
+    },
+    "class_type": "ImageScaleToTotalPixelsX",
+    "_meta": { "title": "Image 1" }
+  },
+  "117": {
+    "inputs": {
+      "images": ["101", 0]
+    },
+    "class_type": "PreviewImage",
+    "_meta": { "title": "Preview Image" }
+  },
+  "118": {
+    "inputs": {
+      "images": ["161", 0]
+    },
+    "class_type": "PreviewImage",
+    "_meta": { "title": "Preview Image" }
+  },
+  "119": {
+    "inputs": {
+      "image_a": ["115", 0],
+      "image_b": ["101", 0]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": { "title": "Image Comparer (rgthree)" }
+  },
+  "133": {
+    "inputs": {
+      "megapixels": 1,
+      "multiple_of": 16,
+      "resize_mode": "pad",
+      "upscale_method": "lanczos",
+      "resolution": "",
+      "image": ["176", 0]
+    },
+    "class_type": "ImageScaleToTotalPixelsX",
+    "_meta": { "title": "Image 2" }
+  },
+  "139": {
+    "inputs": {
+      "model": ["163", 0],
+      "conditioning": ["156", 0]
+    },
+    "class_type": "BasicGuider",
+    "_meta": { "title": "BasicGuider" }
+  },
+  "156": {
+    "inputs": {
+      "prompt": "",
+      "vl_megapixels": 0,
+      "max_images_allowed": "2",
+      "clip": ["164", 0],
+      "vae": ["105", 0],
+      "image1": ["115", 0],
+      "image2": ["133", 0]
+    },
+    "class_type": "TextEncodeEditAdvanced",
+    "_meta": { "title": "TextEncodeEditAdvanced" }
+  },
+  "159": {
+    "inputs": {
+      "direction": "vertical",
+      "match_size": true,
+      "method": "lanczos",
+      "output_all_concatenations": true,
+      "image1": ["115", 0],
+      "image2": ["133", 0]
+    },
+    "class_type": "AD_image-concat-advanced",
+    "_meta": { "title": "AD Image Concatenation Advanced" }
+  },
+  "161": {
+    "inputs": {
+      "direction": "horizontal",
+      "match_size": true,
+      "method": "lanczos",
+      "output_all_concatenations": false,
+      "image1": ["159", 0],
+      "image2": ["101", 0]
+    },
+    "class_type": "AD_image-concat-advanced",
+    "_meta": { "title": "AD Image Concatenation Advanced" }
+  },
+  "163": {
+    "inputs": {
+      "gguf_name": "flux-2-klein-9b-Q4_K_M.gguf",
+      "dequant_dtype": "bfloat16",
+      "patch_dtype": "bfloat16",
+      "patch_on_device": false
+    },
+    "class_type": "LoaderGGUFAdvanced",
+    "_meta": { "title": "GGUF Loader (Advanced)" }
+  },
+  "164": {
+    "inputs": {
+      "clip_name": "qwen3-8b-q4_k_m.gguf",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "ClipLoaderGGUF",
+    "_meta": { "title": "GGUF CLIP Loader" }
+  },
+  "175": {
+    "inputs": {
+      "base64_data": "",
+      "image_output": "Preview",
+      "save_prefix": "ComfyUI"
+    },
+    "class_type": "easy loadImageBase64",
+    "_meta": { "title": "image1 (base64)" }
+  },
+  "176": {
+    "inputs": {
+      "base64_data": "",
+      "image_output": "Preview",
+      "save_prefix": "ComfyUI"
+    },
+    "class_type": "easy loadImageBase64",
+    "_meta": { "title": "image2 (base64)" }
+  }
+}
