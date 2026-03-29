@@ -38,6 +38,7 @@ WS_URL = f"{VPS_URL}/ws/pc"
 # Tracks the currently running job so cancel can target it
 _current_job_id: str | None = None
 _current_job_cancelled = asyncio.Event()
+_job_task: asyncio.Task | None = None
 
 
 async def run_client() -> None:
@@ -69,7 +70,17 @@ async def run_client() -> None:
         await ws.send(json.dumps({"type": "pubkey", "publicKey": pub_key_b64}))
         log.info("Public key sent to server.")
 
-        # ── Step 3: Job loop ──────────────────────────────────────────────────
+        # ── Step 3: Cancel any orphaned task from a previous connection ─────
+        global _job_task
+        if _job_task and not _job_task.done():
+            _job_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_job_task), timeout=2)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            _job_task = None
+
+        # ── Step 4: Job loop ──────────────────────────────────────────────────
         log.info("Waiting for jobs…")
         async for raw in ws:
             await handle_message(ws, raw)
@@ -85,7 +96,11 @@ async def handle_message(ws, raw: str) -> None:
     msg_type = msg.get("type")
 
     if msg_type == "job":
-        await handle_job(ws, msg)
+        global _job_task
+        # Cancel any previous job task before starting a new one
+        if _job_task and not _job_task.done():
+            _job_task.cancel()
+        _job_task = asyncio.create_task(handle_job(ws, msg))
     elif msg_type == "cancel":
         await handle_cancel(msg)
     else:
@@ -99,6 +114,8 @@ async def handle_cancel(msg: dict) -> None:
         log.info(f"[job {cancel_id}] Cancel requested — interrupting ComfyUI.")
         _current_job_cancelled.set()
         await interrupt_comfyui()
+        if _job_task and not _job_task.done():
+            _job_task.cancel()
     else:
         log.warning(f"[cancel] No matching running job for {cancel_id}")
 
@@ -149,6 +166,8 @@ async def handle_job(ws, msg: dict) -> None:
         await ws.send(json.dumps({"type": "result", "jobId": job_id, "payload": encrypted_result}))
         log.info(f"[job {job_id}] Result sent.")
 
+    except asyncio.CancelledError:
+        log.info(f"[job {job_id}] Task cancelled.")
     except Exception as exc:
         log.exception(f"[job {job_id}] Error processing job: {exc}")
         try:

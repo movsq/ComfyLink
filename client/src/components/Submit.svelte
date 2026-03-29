@@ -60,7 +60,8 @@
     if (!ws) return;
     const offs = [];
 
-    offs.push(ws.on('progress', ({ value, max }) => {
+    offs.push(ws.on('progress', ({ jobId, value, max }) => {
+      if (currentJobId && jobId !== currentJobId) return;
       if (value < _prevValue && _prevValue >= progressMax * 0.9) progressPhase += 1;
       _prevValue    = value;
       progressValue = value;
