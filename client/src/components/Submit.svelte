@@ -21,6 +21,7 @@
   let sampler = $state('euler');
   let lora = $state('none');
   let loraStrength = $state(0.75);
+  let quantization = $state('flux-2-klein-9b-Q4_K_M.gguf');
   let status = $state('idle'); // 'idle' | 'encrypting' | 'sent' | 'error'
   let error = $state('');
   let currentJobId = $state(null);
@@ -39,6 +40,7 @@
   let seedModeOpen = $state(false);
   let samplerOpen = $state(false);
   let loraOpen = $state(false);
+  let quantizationOpen = $state(false);
 
   const seedModeOptions = [
     { value: 'randomize', label: 'Randomize' },
@@ -56,14 +58,23 @@
     { value: 'lora1.safetensors', label: 'LoRa - N1' },
     { value: 'lora2.safetensors', label: 'LoRa - N2' },
   ];
+  const quantizationOptions = [
+    { value: 'flux-2-klein-9b-Q4_K_M.gguf', label: 'Q4_K_M', size: '5.91 GB' },
+    { value: 'flux-2-klein-9b-Q5_K_M.gguf', label: 'Q5_K_M', size: '7.02 GB' },
+    { value: 'flux-2-klein-9b-Q6_K.gguf',   label: 'Q6_K',   size: '7.87 GB' },
+    { value: 'flux-2-klein-9b-Q8_0.gguf',   label: 'Q8_0',   size: '9.98 GB' },
+  ];
 
-  let seedModeLabel = $derived(seedModeOptions.find(o => o.value === seedMode)?.label ?? seedMode);
-  let samplerLabel  = $derived(samplerOptions.find(o => o.value === sampler)?.label ?? sampler);
-  let loraLabel      = $derived(loraOptions.find(o => o.value === lora)?.label ?? lora);
+  let seedModeLabel     = $derived(seedModeOptions.find(o => o.value === seedMode)?.label ?? seedMode);
+  let samplerLabel      = $derived(samplerOptions.find(o => o.value === sampler)?.label ?? sampler);
+  let loraLabel         = $derived(loraOptions.find(o => o.value === lora)?.label ?? lora);
+  let quantizationLabel = $derived(quantizationOptions.find(o => o.value === quantization)?.label ?? quantization);
+  let quantizationSize  = $derived(quantizationOptions.find(o => o.value === quantization)?.size ?? '');
 
   let configSummary = $derived(
     `${seed} · ${steps} steps · ${samplerLabel} · ${seedModeLabel.split(' ')[0]}` +
-    (lora !== 'none' ? ` · ${loraLabel}` : '')
+    (lora !== 'none' ? ` · ${loraLabel}` : '') +
+    ` · ${quantizationLabel}`
   );
 
   // Click-outside action — reused for overlay panel and dropdowns
@@ -295,7 +306,7 @@
       const aesKey       = await deriveAESKey(ephKeyPair.privateKey, pcPublicKey);
       const image1B64    = await fileToBase64(imageFile1);
       const image2B64    = await fileToBase64(imageFile2);
-      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed, steps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength) }));
+      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed, steps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength), quantization }));
       const { iv, ciphertext } = await encryptPayload(aesKey, plaintext);
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
@@ -340,13 +351,13 @@
     aria-modal="true"
     aria-label="Configuration"
     tabindex="-1"
-    onclick={(e) => { if (e.target === e.currentTarget) { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; } }}
+    onclick={(e) => { if (e.target === e.currentTarget) { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; } }}
   >
-    <div class="cfg-panel" use:clickOutside={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }}>
+    <div class="cfg-panel" use:clickOutside={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; }}>
       <div class="cfg-handle"></div>
       <div class="cfg-header">
         <span class="cfg-title">CONFIGURATION</span>
-        <button class="cfg-close" type="button" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }} aria-label="Close configuration">
+        <button class="cfg-close" type="button" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; }} aria-label="Close configuration">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
       </div>
@@ -456,10 +467,42 @@
             </div>
           </div>
         </div>
+
+        <!-- Quantization -->
+        <div class="cfg-section cfg-section-quant">
+          <span class="cfg-section-label">QUANTIZATION</span>
+          <div class="custom-select dropup" use:clickOutside={() => quantizationOpen = false}>
+            <button
+              type="button"
+              class="select-trigger"
+              class:open={quantizationOpen}
+              onclick={() => quantizationOpen = !quantizationOpen}
+            >
+              <span class="quant-trigger-content">
+                <span>{quantizationLabel}</span>
+                <span class="quant-size-tag">{quantizationSize}</span>
+              </span>
+              <span class="chevron"><svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </button>
+            <div class="select-list" class:visible={quantizationOpen}>
+              {#each quantizationOptions as opt}
+                <button
+                  type="button"
+                  class="select-option select-option-quant"
+                  class:active={quantization === opt.value}
+                  onclick={() => { quantization = opt.value; quantizationOpen = false; }}
+                >
+                  <span>{opt.label}</span>
+                  <span class="quant-opt-size">{opt.size}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="cfg-footer">
-        <button type="button" class="cfg-done" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }}>
+        <button type="button" class="cfg-done" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; }}>
           DONE
         </button>
       </div>
@@ -1395,5 +1438,38 @@
   /* ── Mobile font-size to prevent iOS zoom ───────────────────────────── */
   @media (hover: none) and (pointer: coarse) {
     input, textarea { font-size: 16px !important; }
+  }
+
+  /* ── Quantization section ────────────────────────────────────────────── */
+  .cfg-section-quant {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 1.25rem;
+  }
+
+  .cfg-section-quant .cfg-section-label {
+    color: #525a66;
+  }
+
+  .quant-trigger-content {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .quant-size-tag {
+    color: #6c7585;
+    font-size: 0.75rem;
+  }
+
+  .select-option-quant {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .quant-opt-size {
+    color: #525a66;
+    font-size: 0.72rem;
+    padding-left: 0.5rem;
   }
 </style>

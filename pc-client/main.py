@@ -155,6 +155,7 @@ async def handle_job(ws, msg: dict) -> None:
             progress_callback=send_progress,
             lora=job_params.get("lora"),
             lora_strength=job_params.get("loraStrength", 1.0),
+            gguf_name=job_params.get("quantization"),
         )
 
         if _current_job_cancelled.is_set():

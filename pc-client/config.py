@@ -57,3 +57,6 @@ RECONNECT_DELAY: float = float(os.environ.get("RECONNECT_DELAY", "5"))
 
 # ── ComfyUI ────────────────────────────────────────────────────────────────────
 COMFYUI_URL: str = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+
+# ── GGUF model selection ───────────────────────────────────────────────────────
+GGUF_MODEL: str = os.environ.get("GGUF_MODEL", "flux-2-klein-9b-Q4_K_M.gguf")

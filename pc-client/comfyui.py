@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 import aiohttp
 import websockets
 
-from config import COMFYUI_URL
+from config import COMFYUI_URL, GGUF_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ def _build_workflow(
     sampler: str,
     lora: str | None = None,
     lora_strength: float = 1.0,
+    gguf_name: str | None = None,
 ) -> dict:
     """
     Deep-copy the template and inject job-specific parameters.
@@ -77,7 +78,9 @@ def _build_workflow(
     wf["109"]["inputs"]["steps"] = steps
     wf["156"]["inputs"]["prompt"] = prompt
     wf["156"]["inputs"]["max_images_allowed"] = str(num_images)
-
+    # ── GGUF quantization override ───────────────────────────────────────────────────
+    if gguf_name:
+        wf["163"]["inputs"]["gguf_name"] = gguf_name
     # ── LoRA wiring ────────────────────────────────────────────────────────────
     if lora and lora != "none":
         wf["181"]["inputs"]["lora_name"] = lora
@@ -177,6 +180,7 @@ async def process_job(
     progress_callback=None,
     lora: str | None = None,
     lora_strength: float = 1.0,
+    gguf_name: str | None = None,
 ) -> bytes:
     """
     Submit a job to the local ComfyUI instance and return the output image bytes.
@@ -195,9 +199,10 @@ async def process_job(
 
     num_images = (1 if image1 else 0) + (1 if image2 else 0)
     lora_info = f"{lora!r} (strength={lora_strength})" if lora and lora != "none" else "none"
+    effective_gguf = gguf_name or GGUF_MODEL
     log.info(
         f"[comfyui] Submitting: images={num_images}, seed={seed}, "
-        f"steps={steps}, sampler={sampler!r}, lora={lora_info}"
+        f"steps={steps}, sampler={sampler!r}, lora={lora_info}, gguf={effective_gguf!r}"
     )
 
     async with aiohttp.ClientSession() as session:
@@ -217,7 +222,7 @@ async def process_job(
 
         workflow = _build_workflow(
             prompt, image1_name, image2_name, seed, steps, sampler,
-            lora=lora, lora_strength=lora_strength,
+            lora=lora, lora_strength=lora_strength, gguf_name=effective_gguf,
         )
 
         # ── Step 1: POST /prompt ───────────────────────────────────────────────

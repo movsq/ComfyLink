@@ -113,12 +113,15 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
         (job_params, aes_key_bytes)
 
         job_params keys:
-            prompt  (str)
-            image1  (bytes | None) — first input image, or None
-            image2  (bytes | None) — second input image, or None
-            seed    (int)
-            steps   (int, clamped 1-8)
-            sampler (str)
+            prompt        (str)
+            image1        (bytes | None) — first input image, or None
+            image2        (bytes | None) — second input image, or None
+            seed          (int)
+            steps         (int, clamped 1-8)
+            sampler       (str)
+            lora          (str | None)
+            loraStrength  (float)
+            quantization  (str | None) — full GGUF filename, e.g. "flux-2-klein-9b-Q8_0.gguf"
 
         aes_key_bytes is kept so the result can be encrypted with the same key.
 
@@ -155,6 +158,7 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
         "sampler":      data.get("sampler", "euler"),
         "lora":         data.get("lora"),
         "loraStrength": float(data.get("loraStrength", 1.0)),
+        "quantization": data.get("quantization"),
     }
 
     return job_params, aes_key_bytes
