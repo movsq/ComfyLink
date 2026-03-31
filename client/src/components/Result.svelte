@@ -115,7 +115,7 @@
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.05);
-    color: #71717a;
+    color: #a4afbb;
     font-size: 0.75rem;
     display: flex;
     align-items: center;
@@ -208,7 +208,7 @@
 
   .btn-ghost {
     background: rgba(255, 255, 255, 0.06);
-    color: #a1a1aa;
+    color: #c2ccd5;
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 

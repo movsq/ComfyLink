@@ -19,6 +19,8 @@
   let prompt = $state('');
   let steps = $state(4);
   let sampler = $state('euler');
+  let lora = $state('none');
+  let loraStrength = $state(0.75);
   let status = $state('idle'); // 'idle' | 'encrypting' | 'sent' | 'error'
   let error = $state('');
   let currentJobId = $state(null);
@@ -36,6 +38,7 @@
   // ── Dropdown open state (inside overlay only) ─────────────────────────
   let seedModeOpen = $state(false);
   let samplerOpen = $state(false);
+  let loraOpen = $state(false);
 
   const seedModeOptions = [
     { value: 'randomize', label: 'Randomize' },
@@ -48,12 +51,19 @@
     { value: 'res_multistep', label: 'Res Multistep' },
     { value: 'heun', label: 'Heun' },
   ];
+  const loraOptions = [
+    { value: 'none', label: 'None' },
+    { value: 'lora1.safetensors', label: 'LoRa - N1' },
+    { value: 'lora2.safetensors', label: 'LoRa - N2' },
+  ];
 
   let seedModeLabel = $derived(seedModeOptions.find(o => o.value === seedMode)?.label ?? seedMode);
   let samplerLabel  = $derived(samplerOptions.find(o => o.value === sampler)?.label ?? sampler);
+  let loraLabel      = $derived(loraOptions.find(o => o.value === lora)?.label ?? lora);
 
   let configSummary = $derived(
-    `${seed} · ${steps} steps · ${samplerLabel} · ${seedModeLabel.split(' ')[0]}`
+    `${seed} · ${steps} steps · ${samplerLabel} · ${seedModeLabel.split(' ')[0]}` +
+    (lora !== 'none' ? ` · ${loraLabel}` : '')
   );
 
   // Click-outside action — reused for overlay panel and dropdowns
@@ -85,16 +95,29 @@
       currentJobId = jobId;
     }));
 
-    offs.push(ws.on('error', () => {
-      if (status === 'sent') reset();
+    offs.push(ws.on('error', ({ jobId }) => {
+      // Only reset if no job queued yet, or if the error is explicitly for our job
+      if (status === 'sent' && (!currentJobId || jobId === currentJobId)) reset();
     }));
 
     offs.push(ws.on('no_pc', () => {
-      if (status === 'sent') reset();
+      // Only reset if the job hasn't been accepted by the server yet
+      if (status === 'sent' && !currentJobId) reset();
     }));
 
     offs.push(ws.on('close', () => {
-      if (status === 'sent') reset();
+      // Don't reset here — the socket will reconnect. If the job was already
+      // queued, processing continues. If it wasn't queued, the 'open' handler
+      // below will detect that and reset cleanly after reconnect.
+    }));
+
+    offs.push(ws.on('open', () => {
+      // Socket reconnected. If we're still waiting for a queued confirmation,
+      // the job was lost in the disconnect — reset so the user can retry.
+      if (status === 'sent' && !currentJobId) {
+        error = 'Connection lost — please try again';
+        reset();
+      }
     }));
 
     return () => offs.forEach(off => off());
@@ -263,6 +286,7 @@
     e.preventDefault();
     if (!prompt.trim() || status === 'sent') return;
     error = '';
+    _hadResult = false;  // prevent the _hadResult effect from resetting this new submission
     status = 'encrypting';
     try {
       const pcPubKeyB64  = await getPCPublicKey(token);
@@ -271,7 +295,7 @@
       const aesKey       = await deriveAESKey(ephKeyPair.privateKey, pcPublicKey);
       const image1B64    = await fileToBase64(imageFile1);
       const image2B64    = await fileToBase64(imageFile2);
-      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed, steps, sampler }));
+      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed, steps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength) }));
       const { iv, ciphertext } = await encryptPayload(aesKey, plaintext);
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
@@ -316,13 +340,13 @@
     aria-modal="true"
     aria-label="Configuration"
     tabindex="-1"
-    onclick={(e) => { if (e.target === e.currentTarget) { configOpen = false; seedModeOpen = false; samplerOpen = false; } }}
+    onclick={(e) => { if (e.target === e.currentTarget) { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; } }}
   >
-    <div class="cfg-panel" use:clickOutside={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; }}>
+    <div class="cfg-panel" use:clickOutside={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }}>
       <div class="cfg-handle"></div>
       <div class="cfg-header">
         <span class="cfg-title">CONFIGURATION</span>
-        <button class="cfg-close" type="button" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; }} aria-label="Close configuration">
+        <button class="cfg-close" type="button" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }} aria-label="Close configuration">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
       </div>
@@ -397,10 +421,45 @@
             </div>
           </div>
         </div>
+
+        <!-- LoRA -->
+        <div class="cfg-section">
+          <span class="cfg-section-label">LORA</span>
+          <div class="param-row">
+            <div class="param-field">
+              <span class="field-label">MODEL</span>
+              <div class="custom-select dropup" use:clickOutside={() => loraOpen = false}>
+                <button
+                  type="button"
+                  class="select-trigger"
+                  class:open={loraOpen}
+                  onclick={() => loraOpen = !loraOpen}
+                >
+                  <span>{loraLabel}</span>
+                  <span class="chevron"><svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                </button>
+                <div class="select-list" class:visible={loraOpen}>
+                  {#each loraOptions as opt}
+                    <button
+                      type="button"
+                      class="select-option"
+                      class:active={lora === opt.value}
+                      onclick={() => { lora = opt.value; loraOpen = false; }}
+                    >{opt.label}</button>
+                  {/each}
+                </div>
+              </div>
+            </div>
+            <div class="param-field param-field-slider" class:hidden-field={lora === 'none'}>
+              <label class="field-label" for="cfg-lora-strength">STRENGTH ({loraStrength.toFixed(2)})</label>
+              <input id="cfg-lora-strength" type="range" min="0" max="2" step="0.05" bind:value={loraStrength} class="range-slider" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="cfg-footer">
-        <button type="button" class="cfg-done" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; }}>
+        <button type="button" class="cfg-done" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; }}>
           DONE
         </button>
       </div>
@@ -544,7 +603,12 @@
           </svg>
           <span class="config-label">CONFIGURE</span>
         </span>
-        <span class="config-summary">{configSummary}</span>
+        <span class="config-summary">
+          <span class="config-summary-inner">
+            <span>{configSummary}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+            <span aria-hidden="true">{configSummary}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+          </span>
+        </span>
       </button>
 
       {#if error}
@@ -643,7 +707,7 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.6rem;
     letter-spacing: 0.18em;
-    color: #52525b;
+    color: #8b96a6;
     margin-bottom: 0.35rem;
   }
 
@@ -680,7 +744,7 @@
     border-radius: 0.75rem;
     height: 180px;
     background: rgba(255, 255, 255, 0.02);
-    color: #3f3f46;
+    color: #6c7585;
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
     letter-spacing: 0.12em;
@@ -760,7 +824,7 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 3rem;
     background: rgba(255, 255, 255, 0.04);
-    color: #52525b;
+    color: #8b96a6;
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     letter-spacing: 0.1em;
@@ -777,7 +841,7 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.375rem;
     background: transparent;
-    color: #52525b;
+    color: #8b96a6;
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     cursor: pointer;
@@ -827,7 +891,7 @@
   }
 
   textarea::placeholder,
-  input::placeholder { color: #3f3f46; }
+  input::placeholder { color: #6c7585; }
 
   textarea:focus,
   input[type='number']:focus { border-color: rgba(123, 156, 191, 0.4); }
@@ -874,12 +938,19 @@
   .chevron {
     display: flex;
     align-items: center;
-    color: #52525b;
+    color: #8b96a6;
     transition: transform 0.22s ease;
     flex-shrink: 0;
   }
 
   .select-trigger.open .chevron { transform: rotate(180deg); }
+
+  .dropup .select-list {
+    top: auto;
+    bottom: calc(100% + 5px);
+  }
+  .dropup .select-trigger.open .chevron { transform: rotate(0deg); }
+  .dropup .select-trigger .chevron { transform: rotate(180deg); }
 
   .select-list {
     position: absolute;
@@ -909,7 +980,7 @@
     padding: 0.6rem 0.875rem;
     background: transparent;
     border: none;
-    color: #71717a;
+    color: #a4afbb;
     font-family: 'DM Mono', monospace;
     font-size: 0.8rem;
     text-align: left;
@@ -920,6 +991,65 @@
   .select-option:hover { background: rgba(255, 255, 255, 0.05); color: #e4e4e7; }
   .select-option:active { transform: scale(0.98); }
   .select-option.active { color: #7b9cbf; }
+
+  /* ── Range slider ────────────────────────────────────────────────────── */
+  .param-field-slider {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: opacity 0.2s, max-height 0.2s;
+  }
+  .hidden-field {
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+  }
+  @media (min-width: 600px) {
+    .hidden-field {
+      max-height: none;
+      visibility: hidden;
+    }
+  }
+
+  .range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    margin: 0;
+    cursor: pointer;
+  }
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #7b9cbf;
+    border: 2px solid rgba(9, 9, 11, 0.8);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.12s;
+  }
+  .range-slider::-webkit-slider-thumb:hover { background: #a3bdd4; transform: scale(1.15); }
+  .range-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #7b9cbf;
+    border: 2px solid rgba(9, 9, 11, 0.8);
+    cursor: pointer;
+  }
+  .range-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+  }
 
   /* ── Generate row ────────────────────────────────────────────────────── */
   .generate-row {
@@ -976,7 +1106,7 @@
 
   .btn-generate.btn-new-job {
     background: rgba(255, 255, 255, 0.06);
-    color: #a1a1aa;
+    color: #c2ccd5;
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
@@ -989,7 +1119,7 @@
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.05);
-    color: #71717a;
+    color: #a4afbb;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1039,7 +1169,7 @@
   }
 
   .config-icon {
-    color: #52525b;
+    color: #8b96a6;
     flex-shrink: 0;
     transition: color 0.2s;
   }
@@ -1049,23 +1179,41 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
     letter-spacing: 0.18em;
-    color: #52525b;
+    color: #8b96a6;
     transition: color 0.2s;
   }
-  .config-row:hover .config-label { color: #71717a; }
+  .config-row:hover .config-label { color: #a4afbb; }
 
   .config-summary {
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
     letter-spacing: 0.05em;
-    color: #3f3f46;
-    white-space: nowrap;
+    color: #6c7585;
     overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: right;
+    flex: 1;
+    min-width: 0;
     transition: color 0.2s;
+    mask-image: linear-gradient(to left, transparent 0%, black 15%);
+    -webkit-mask-image: linear-gradient(to left, transparent 0%, black 15%);
   }
-  .config-row:hover .config-summary { color: #52525b; }
+  .config-row:hover .config-summary { color: #8b96a6; }
+
+  .config-summary-inner {
+    display: inline-flex;
+    width: max-content;
+    white-space: nowrap;
+    animation: summary-scroll 14s linear infinite;
+    will-change: transform;
+  }
+
+  .config-summary-inner span {
+    flex-shrink: 0;
+  }
+
+  @keyframes summary-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
 
   /* ── Config overlay ──────────────────────────────────────────────────── */
   .cfg-backdrop {
@@ -1162,7 +1310,7 @@
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.05);
-    color: #71717a;
+    color: #a4afbb;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1197,7 +1345,7 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.58rem;
     letter-spacing: 0.2em;
-    color: #3f3f46;
+    color: #6c7585;
   }
 
   .cfg-footer {

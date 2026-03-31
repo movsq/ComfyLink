@@ -180,5 +180,16 @@
     },
     "class_type": "LoadImage",
     "_meta": { "title": "Load Image 2" }
+  },
+  "181": {
+    "inputs": {
+      "lora_name": "",
+      "strength_model": 1,
+      "strength_clip": 1,
+      "model": null,
+      "clip": null
+    },
+    "class_type": "LoraLoader",
+    "_meta": { "title": "Load LoRA (Model and CLIP)" }
   }
 }

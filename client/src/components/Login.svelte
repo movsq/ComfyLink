@@ -111,7 +111,7 @@
   }
 
   input::placeholder {
-    color: #3f3f46;
+    color: #6c7585;
     letter-spacing: 0.05em;
   }
 

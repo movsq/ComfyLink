@@ -60,6 +60,8 @@ def _build_workflow(
     seed: int,
     steps: int,
     sampler: str,
+    lora: str | None = None,
+    lora_strength: float = 1.0,
 ) -> dict:
     """
     Deep-copy the template and inject job-specific parameters.
@@ -75,6 +77,21 @@ def _build_workflow(
     wf["109"]["inputs"]["steps"] = steps
     wf["156"]["inputs"]["prompt"] = prompt
     wf["156"]["inputs"]["max_images_allowed"] = str(num_images)
+
+    # ── LoRA wiring ────────────────────────────────────────────────────────────
+    if lora and lora != "none":
+        wf["181"]["inputs"]["lora_name"] = lora
+        wf["181"]["inputs"]["strength_model"] = lora_strength
+        wf["181"]["inputs"]["strength_clip"] = 1.0
+        # Wire loaders → LoRA node
+        wf["181"]["inputs"]["model"] = ["163", 0]
+        wf["181"]["inputs"]["clip"] = ["164", 0]
+        # Wire LoRA outputs → consumers
+        wf["139"]["inputs"]["model"] = ["181", 0]
+        wf["156"]["inputs"]["clip"] = ["181", 1]
+    else:
+        # No LoRA — remove the node entirely, keep direct connections
+        wf.pop("181", None)
 
     # ── Image filename injection + node pruning ────────────────────────────────
     if num_images == 2:
@@ -158,6 +175,8 @@ async def process_job(
     steps: int,
     sampler: str,
     progress_callback=None,
+    lora: str | None = None,
+    lora_strength: float = 1.0,
 ) -> bytes:
     """
     Submit a job to the local ComfyUI instance and return the output image bytes.
@@ -175,9 +194,10 @@ async def process_job(
     ws_url = f"{ws_scheme}://{parsed.netloc}/ws?clientId={client_id}"
 
     num_images = (1 if image1 else 0) + (1 if image2 else 0)
+    lora_info = f"{lora!r} (strength={lora_strength})" if lora and lora != "none" else "none"
     log.info(
         f"[comfyui] Submitting: images={num_images}, seed={seed}, "
-        f"steps={steps}, sampler={sampler!r}"
+        f"steps={steps}, sampler={sampler!r}, lora={lora_info}"
     )
 
     async with aiohttp.ClientSession() as session:
@@ -196,7 +216,8 @@ async def process_job(
             )
 
         workflow = _build_workflow(
-            prompt, image1_name, image2_name, seed, steps, sampler
+            prompt, image1_name, image2_name, seed, steps, sampler,
+            lora=lora, lora_strength=lora_strength,
         )
 
         # ── Step 1: POST /prompt ───────────────────────────────────────────────
