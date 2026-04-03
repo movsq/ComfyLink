@@ -874,10 +874,8 @@ function handleAdminSocket(ws, userId) {
   console.log(`[admin-ws] Connected (user ${userId}).`);
   adminSockets.set(ws, userId);
 
-  // Push an initial refresh signal so the panel catches up if it missed anything
-  // before the WS was established (small race window on first open).
-  sendJson(ws, { type: 'codes_changed' });
-  sendJson(ws, { type: 'users_changed' });
+  // No initial refresh push — the client loads data on mount via HTTP.
+  // WS is used only for real-time change notifications after initial load.
 
   ws.on('close', () => {
     adminSockets.delete(ws);

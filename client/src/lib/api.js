@@ -17,12 +17,13 @@ export async function loginWithGoogle(idToken, inviteCode = null) {
     body: JSON.stringify(body),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
 
+  if (res.status === 429) throw new Error('Too many attempts — please wait a moment and try again');
   if (res.status === 401) throw new Error('Invalid Google token');
   if (res.status === 403) throw new Error(data.error || 'Forbidden');
   if (res.status === 400) throw new Error(data.error || 'Bad request');
-  if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
+  if (!res.ok) throw new Error(data.error || `Sign-in failed (${res.status}) — please try again`);
 
   return data;
 }

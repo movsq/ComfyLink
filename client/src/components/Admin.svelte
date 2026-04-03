@@ -41,25 +41,41 @@
   // ── Admin WebSocket for real-time updates ──────────────────────────────────
   let adminWs = null;
   let adminWsReconnectTimer = null;
+  let _reconnectDelay = 2000; // exponential backoff state
 
   // Debounce timers — prevent a burst of WS events from flooding HTTP requests
   let _codesDebounce = null;
   let _usersDebounce = null;
 
+  // Cooldown: minimum ms between WS-triggered refreshes (not user actions)
+  const WS_REFRESH_COOLDOWN = 3000;
+  let _lastCodesLoad = 0;
+  let _lastUsersLoad = 0;
+
   function debouncedLoadCodes() {
     clearTimeout(_codesDebounce);
-    _codesDebounce = setTimeout(loadCodes, 150);
+    _codesDebounce = setTimeout(() => {
+      if (Date.now() - _lastCodesLoad < WS_REFRESH_COOLDOWN) return;
+      loadCodes();
+    }, 500);
   }
 
   function debouncedLoadUsers() {
     clearTimeout(_usersDebounce);
-    _usersDebounce = setTimeout(loadUsers, 150);
+    _usersDebounce = setTimeout(() => {
+      if (Date.now() - _lastUsersLoad < WS_REFRESH_COOLDOWN) return;
+      loadUsers();
+    }, 500);
   }
 
   function connectAdminWS() {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${protocol}://${location.host}/ws/admin?token=${encodeURIComponent(token)}`);
     adminWs = ws;
+
+    ws.addEventListener('open', () => {
+      _reconnectDelay = 2000; // reset backoff on successful connect
+    });
 
     ws.addEventListener('message', (ev) => {
       let msg;
@@ -72,9 +88,15 @@
       }
     });
 
+    ws.addEventListener('error', () => {
+      // Suppress unhandled error — close fires immediately after and handles reconnect
+    });
+
     ws.addEventListener('close', () => {
       if (adminWs !== ws) return; // superseded
-      adminWsReconnectTimer = setTimeout(connectAdminWS, 5000);
+      adminWsReconnectTimer = setTimeout(connectAdminWS, _reconnectDelay);
+      // Exponential backoff, cap at 30 s
+      _reconnectDelay = Math.min(_reconnectDelay * 2, 30_000);
     });
   }
 
@@ -95,6 +117,7 @@
     if (codes.length === 0) loading = true;
     try {
       codes = await listCodes(token);
+      _lastCodesLoad = Date.now();
     } catch (err) {
       error = err.message;
     } finally {
@@ -195,6 +218,7 @@
     try {
       const filter = userFilter === 'all' ? null : userFilter;
       users = await listUsers(token, filter);
+      _lastUsersLoad = Date.now();
     } catch (err) {
       usersError = err.message;
     } finally {
