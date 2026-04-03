@@ -127,10 +127,12 @@ app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '20mb' }));
 
 // Rate limiting
-// Auth endpoints get a strict limit (10 req/min per IP).
-// General API gets 200 req/min per IP (admin panel polls codes + users frequently).
-const authLimiter = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
-const apiLimiter  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+// Auth endpoints: 30 req/min per IP — generous enough for normal interactive login
+// (Google's Sign-In widget can fire multiple XHRs on retry/page-reload) but still
+// blocks automated stuffing. Auth routes are SKIPPED in apiLimiter to avoid
+// double-counting the same request against two buckets.
+const authLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+const apiLimiter  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/auth/'), message: { error: 'Too many requests — try again later' } });
 app.use('/auth/', authLimiter);
 app.use(apiLimiter);
 
