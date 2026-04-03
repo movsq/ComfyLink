@@ -17,6 +17,7 @@ export function createPhoneWS(token) {
   let socket = null;
   let closed = false;
   let failedAttempts = 0;
+  let pingTimer = null;
   const MAX_RETRIES = 5;
 
   function on(event, handler) {
@@ -39,6 +40,13 @@ export function createPhoneWS(token) {
     socket.addEventListener('open', () => {
       failedAttempts = 0;
       emit('open', null);
+      // Application-level keepalive — fires every 20 s to keep idle connections
+      // alive through NAT/firewall/proxy idle timeouts.
+      pingTimer = setInterval(() => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 20_000);
     });
 
     socket.addEventListener('message', (event) => {
@@ -53,6 +61,8 @@ export function createPhoneWS(token) {
     });
 
     socket.addEventListener('close', (event) => {
+      clearInterval(pingTimer);
+      pingTimer = null;
       emit('close', event);
       if (closed) return;
       failedAttempts += 1;
@@ -82,6 +92,8 @@ export function createPhoneWS(token) {
 
   function close() {
     closed = true;
+    clearInterval(pingTimer);
+    pingTimer = null;
     socket?.close();
   }
 

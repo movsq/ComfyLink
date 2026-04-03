@@ -593,6 +593,21 @@ const server = createServer(app);
 // ── WebSocket servers (noServer mode, we route upgrades manually) ─────────────
 const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
 
+// ── Heartbeat — keeps idle connections alive through NAT/firewall/proxy timeouts ─
+// 25 s is conservative enough to beat typical 30 s NAT idle timeouts.
+const PING_INTERVAL_MS = 25_000;
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      return;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, PING_INTERVAL_MS);
+server.on('close', () => clearInterval(heartbeatTimer));
+
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -649,6 +664,8 @@ server.on('upgrade', async (req, socket, head) => {
 // ── PC socket handler ─────────────────────────────────────────────────────────
 async function handlePcSocket(ws) {
   console.log('[pc] Connecting — waiting for auth handshake...');
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   const authTimeout = setTimeout(() => {
     console.warn('[pc] Auth timed out.');
@@ -756,6 +773,8 @@ function handlePcMessage(raw) {
 // ── Phone socket handler ──────────────────────────────────────────────────────
 function handlePhoneSocket(ws, jwtPayload) {
   console.log(`[phone] Connected (${jwtPayload.type === 'code_user' ? 'code' : 'google'}).`);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   if (jwtPayload.type === 'code_user') {
     registerCodeSocket(jwtPayload.codeId, ws);
@@ -778,7 +797,9 @@ function handlePhoneSocket(ws, jwtPayload) {
       return;
     }
 
-    if (msg.type === 'submit') {
+    if (msg.type === 'ping') {
+      sendJson(ws, { type: 'pong' });
+    } else if (msg.type === 'submit') {
       handleJobSubmit(ws, msg, jwtPayload);
     } else if (msg.type === 'cancel') {
       if (msg.jobId) {
@@ -876,6 +897,9 @@ function handleAdminSocket(ws, userId) {
 
   // No initial refresh push — the client loads data on mount via HTTP.
   // WS is used only for real-time change notifications after initial load.
+
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('close', () => {
     adminSockets.delete(ws);

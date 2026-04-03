@@ -408,6 +408,8 @@ All messages are JSON. The `payload` field is a base64 binary blob the server ne
 | Phone → Server | `{ type: "cancel", jobId: "..." }` |
 | Server → Phone | `{ type: "code_status", usesRemaining: N }` — code_user sessions only |
 | Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — Google user quota changed |
+| Phone → Server | `{ type: "ping" }` — application-level keepalive (sent every 20 s by the client) |
+| Server → Phone | `{ type: "pong" }` — keepalive reply |
 
 ### Admin ↔ Server (`/ws/admin?token=<jwt>`)
 
