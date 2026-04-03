@@ -77,7 +77,12 @@
     });
 
     ws.on('error', ({ message }) => {
-      wsError = message ?? 'Unknown error';
+      // Map internal error keys to user-friendly messages
+      if (message === 'no_uses_remaining') {
+        wsError = 'No uses remaining — contact an admin to get more.';
+      } else {
+        wsError = message ?? 'Unknown error';
+      }
     });
 
     ws.on('no_pc', () => {

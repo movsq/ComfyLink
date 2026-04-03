@@ -107,6 +107,11 @@ const stmtUpdateUserUses = db.prepare(
   'UPDATE users SET uses_remaining = @uses_remaining, updated_at = @updated_at WHERE id = @id',
 );
 
+// Atomic decrement: only succeeds if uses_remaining > 0. Returns result.changes = 1 on success.
+const stmtAtomicDecrementUserUses = db.prepare(
+  'UPDATE users SET uses_remaining = uses_remaining - 1, updated_at = @updated_at WHERE id = @id AND uses_remaining > 0',
+);
+
 const stmtFindByEmail = db.prepare('SELECT * FROM users WHERE email = ?');
 
 // Invite codes
@@ -236,6 +241,14 @@ export function setUserAdmin(id, isAdmin) {
 
 export function updateUserUses(id, usesRemaining) {
   return stmtUpdateUserUses.run({ id, uses_remaining: usesRemaining ?? null, updated_at: Date.now() });
+}
+
+/**
+ * Atomically decrement uses_remaining by 1, only if currently > 0.
+ * Returns { changes: 1 } on success, { changes: 0 } if already at 0 or NULL.
+ */
+export function atomicDecrementUserUses(id) {
+  return stmtAtomicDecrementUserUses.run({ id, updated_at: Date.now() });
 }
 
 // Invite codes

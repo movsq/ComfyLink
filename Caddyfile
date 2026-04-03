@@ -22,7 +22,14 @@
 
     # ── API & WebSocket → Node.js relay ───────────────────────────────────────
     handle /ws* {
-        reverse_proxy server:3000
+        reverse_proxy server:3000 {
+            # Disable read/write timeouts for long-lived WebSocket connections
+            transport http {
+                read_timeout  0
+                write_timeout 0
+            }
+            flush_interval -1
+        }
     }
     handle /auth* {
         reverse_proxy server:3000

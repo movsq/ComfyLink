@@ -42,6 +42,20 @@
   let adminWs = null;
   let adminWsReconnectTimer = null;
 
+  // Debounce timers — prevent a burst of WS events from flooding HTTP requests
+  let _codesDebounce = null;
+  let _usersDebounce = null;
+
+  function debouncedLoadCodes() {
+    clearTimeout(_codesDebounce);
+    _codesDebounce = setTimeout(loadCodes, 150);
+  }
+
+  function debouncedLoadUsers() {
+    clearTimeout(_usersDebounce);
+    _usersDebounce = setTimeout(loadUsers, 150);
+  }
+
   function connectAdminWS() {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${protocol}://${location.host}/ws/admin?token=${encodeURIComponent(token)}`);
@@ -51,10 +65,10 @@
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'codes_changed') {
-        loadCodes();
+        debouncedLoadCodes();
       } else if (msg.type === 'users_changed') {
         // Refresh users if already loaded
-        if (activeTab === 'users' || users.length > 0) loadUsers();
+        if (activeTab === 'users' || users.length > 0) debouncedLoadUsers();
       }
     });
 
@@ -71,6 +85,8 @@
     return () => {
       // Cleanup on panel close
       clearTimeout(adminWsReconnectTimer);
+      clearTimeout(_codesDebounce);
+      clearTimeout(_usersDebounce);
       if (adminWs) { adminWs.close(); adminWs = null; }
     };
   });

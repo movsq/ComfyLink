@@ -41,6 +41,7 @@ import {
   getAllUsers,
   updateUserStatus,
   updateUserUses,
+  atomicDecrementUserUses,
 } from './db.js';
 import {
   createJob,
@@ -115,6 +116,10 @@ function sendJson(ws, obj) {
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express();
 
+// Trust the Caddy reverse proxy so req.ip is the real client IP, not the
+// container IP. Without this, all users share one rate-limit bucket.
+app.set('trust proxy', 1);
+
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : undefined; // undefined = allow all in dev
@@ -122,8 +127,10 @@ app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '20mb' }));
 
 // Rate limiting
+// Auth endpoints get a strict limit (10 req/min per IP).
+// General API gets 200 req/min per IP (admin panel polls codes + users frequently).
 const authLimiter = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
-const apiLimiter = rateLimit({ windowMs: 60_000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+const apiLimiter  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
 app.use('/auth/', authLimiter);
 app.use(apiLimiter);
 
@@ -559,9 +566,12 @@ app.patch('/admin/users/:id', requireAdmin, (req, res) => {
       if (!Number.isInteger(n) || n < 0 || n > 999_999) {
         return res.status(400).json({ error: 'usesRemaining must be null or an integer 0–999999' });
       }
+      updateUserUses(id, n);
+      notifyUserSockets(id, n);
+    } else {
+      updateUserUses(id, null);
+      notifyUserSockets(id, null);
     }
-    updateUserUses(id, usesRemaining);
-    notifyUserSockets(id, usesRemaining ?? null);
   }
 
   notifyAdmins('users_changed');
@@ -818,15 +828,19 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null) {
       sendJson(phoneWs, { type: 'error', message: 'User not found' });
       return;
     }
-    if (userRow.uses_remaining === 0) {
-      sendJson(phoneWs, { type: 'error', message: 'no_uses_remaining' });
-      return;
-    }
     if (userRow.uses_remaining !== null) {
-      // Finite quota — decrement and propagate
-      updateUserUses(jwtPayload.userId, userRow.uses_remaining - 1);
+      // Finite quota — atomic decrement (prevents TOCTOU race across tabs/sockets)
+      const result = atomicDecrementUserUses(jwtPayload.userId);
+      if (result.changes === 0) {
+        // Already at 0 — reject
+        sendJson(phoneWs, { type: 'error', message: 'no_uses_remaining' });
+        return;
+      }
+      // Refetch to get the new value for notifications
+      const updated = getUserById(jwtPayload.userId);
+      const newRemaining = updated?.uses_remaining ?? 0;
       notifyAdmins('users_changed');
-      notifyUserSockets(jwtPayload.userId, userRow.uses_remaining - 1);
+      notifyUserSockets(jwtPayload.userId, newRemaining);
     }
     // null = unlimited — proceed without decrement
   }
