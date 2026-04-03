@@ -61,7 +61,7 @@ export function createPhoneWS(token) {
         emit('reconnect_failed', null);
         return;
       }
-      const delay = Math.min(3000 * 2 ** (failedAttempts - 1), 30000);
+      const delay = Math.min(3000 * 2 ** (failedAttempts - 1), 30000) + Math.random() * 1000;
       console.log(`[ws] Reconnecting in ${delay / 1000}s (attempt ${failedAttempts})…`);
       setTimeout(connect, delay);
     });

@@ -62,8 +62,10 @@
       if (currentJobId && msg.jobId !== currentJobId) {
         console.log(`[app] Ignoring stale result for job ${msg.jobId}`);
         return;
-      }
-      wsError = ''; // result arrived — any “PC not connected” banner is stale
+      }      if (!currentAesKey) {
+        console.log(`[app] Ignoring result — no AES key available (job ${msg.jobId})`);
+        return;
+      }      wsError = ''; // result arrived — any “PC not connected” banner is stale
       currentResult = msg;
       showModal = true;
     });

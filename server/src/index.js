@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
@@ -93,8 +94,18 @@ function sendJson(ws, obj) {
 
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express();
-app.use(cors());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : undefined; // undefined = allow all in dev
+app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '20mb' }));
+
+// Rate limiting
+const authLimiter = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+const apiLimiter = rateLimit({ windowMs: 60_000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+app.use('/auth/', authLimiter);
+app.use(apiLimiter);
 
 /** POST /auth/google — exchange a Google ID token (+ optional invite code) for a JWT */
 app.post('/auth/google', async (req, res) => {
@@ -392,6 +403,9 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
+  if (typeof encryptedFull !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(encryptedFull)) {
+    return res.status(400).json({ error: 'Invalid base64 encoding' });
+  }
   const fullBuf = Buffer.from(encryptedFull, 'base64');
   if (fullBuf.length > 20 * 1024 * 1024) {
     return res.status(413).json({ error: 'Image too large (max 20MB)' });
@@ -410,8 +424,12 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
 
 /** GET /results — paginated list with thumbs (no full images) */
 app.get('/results', requireActive, (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit ?? '20', 10), 50);
+  const parsedLimit = parseInt(req.query.limit ?? '20', 10);
+  const limit = Math.min(Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20, 50);
   const before = req.query.before ? parseInt(req.query.before, 10) : null;
+  if (before !== null && (!Number.isFinite(before) || before < 1)) {
+    return res.status(400).json({ error: 'Invalid before cursor' });
+  }
 
   const rows = listStoredResults(req.user.userId, { limit, before });
   res.json(rows.map(r => ({

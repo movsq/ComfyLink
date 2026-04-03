@@ -97,7 +97,7 @@
 
   async function handleBiometricWithPassword(e) {
     e.preventDefault();
-    if (password.length < 8) { error = 'Password must be at least 8 characters'; return; }
+    if (password.length < 12) { error = 'Password must be at least 12 characters'; return; }
     if (password !== confirmPassword) { error = 'Passwords do not match'; return; }
     if (!_pendingBio) { error = 'Biometric data lost — please start again'; step = 'choose'; return; }
 
@@ -141,8 +141,8 @@
 
   async function handlePasswordSetup(e) {
     e.preventDefault();
-    if (password.length < 8) {
-      error = 'Password must be at least 8 characters';
+    if (password.length < 12) {
+      error = 'Password must be at least 12 characters';
       return;
     }
     if (password !== confirmPassword) {
@@ -274,7 +274,7 @@
       <form onsubmit={handlePasswordSetup} class="pw-form">
         <div class="field">
           <label class="field-label" for="vault-pw">PASSWORD</label>
-          <input id="vault-pw" type="password" bind:value={password} placeholder="At least 8 characters" autocomplete="new-password" disabled={loading} />
+          <input id="vault-pw" type="password" bind:value={password} placeholder="At least 12 characters" autocomplete="new-password" disabled={loading} />
         </div>
         <div class="field">
           <label class="field-label" for="vault-pw-confirm">CONFIRM</label>
@@ -285,7 +285,7 @@
           <p class="error">{error}</p>
         {/if}
 
-        <button type="submit" class="btn-primary" disabled={loading || password.length < 8 || !confirmPassword}>
+        <button type="submit" class="btn-primary" disabled={loading || password.length < 12 || !confirmPassword}>
           {loading ? 'SETTING UP…' : 'SET PASSWORD'}
         </button>
       </form>
@@ -303,7 +303,7 @@
       <form onsubmit={handleBiometricWithPassword} class="pw-form">
         <div class="field">
           <label class="field-label" for="bio-fallback-pw">PASSWORD</label>
-          <input id="bio-fallback-pw" type="password" bind:value={password} placeholder="At least 8 characters" autocomplete="new-password" disabled={loading} />
+          <input id="bio-fallback-pw" type="password" bind:value={password} placeholder="At least 12 characters" autocomplete="new-password" disabled={loading} />
         </div>
         <div class="field">
           <label class="field-label" for="bio-fallback-pw-confirm">CONFIRM</label>
@@ -314,7 +314,7 @@
           <p class="error">{error}</p>
         {/if}
 
-        <button type="submit" class="btn-primary" disabled={loading || password.length < 8 || !confirmPassword}>
+        <button type="submit" class="btn-primary" disabled={loading || password.length < 12 || !confirmPassword}>
           {loading ? 'SETTING UP…' : 'COMPLETE SETUP'}
         </button>
       </form>

@@ -210,7 +210,6 @@ export function recoveryKeyToJSON(bytes, userEmail) {
   return {
     version: 1,
     app: 'ComfyLink',
-    email: userEmail,
     recoveryKey: bufToB64(bytes),
     createdAt: new Date().toISOString(),
   };
@@ -254,9 +253,12 @@ export async function generateThumbnail(imageUrl, maxWidth = 200) {
 
 export function bufToB64(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+  const CHUNK = 32768;
+  const parts = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(parts.join(''));
 }
 
 export function b64ToBuf(b64) {

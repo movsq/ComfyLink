@@ -10,6 +10,16 @@
     # ── Uncomment for Tailscale or other private-CA networks ──────────────────
     # tls internal
 
+    # ── Security headers ──────────────────────────────────────────────────────
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws: https://accounts.google.com; img-src 'self' blob: data:"
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
     # ── API & WebSocket → Node.js relay ───────────────────────────────────────
     handle /ws* {
         reverse_proxy server:3000

@@ -163,10 +163,12 @@ export function decodeJobPayload(b64) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function bufToB64(buf) {
-  // String.fromCharCode(...buf) causes stack overflow for large buffers (e.g. image payloads)
-  let binary = '';
-  for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
-  return btoa(binary);
+  const CHUNK = 32768;
+  const parts = [];
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    parts.push(String.fromCharCode(...buf.subarray(i, i + CHUNK)));
+  }
+  return btoa(parts.join(''));
 }
 
 export function b64ToBuffer(b64) {

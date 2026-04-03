@@ -13,6 +13,9 @@
   let saveError = $state('');
   let savePending = $state(false); // waiting for vault unlock/setup before saving
 
+  const DECRYPT_TIMEOUT_MS = 15_000;
+  let _decryptInFlight = false; // re-entry guard
+
   // Auto-trigger save once masterKey arrives after a pending save request
   $effect(() => {
     if (savePending && masterKey && imageUrl && !decrypting) {
@@ -27,18 +30,32 @@
   });
 
   async function decrypt() {
+    if (_decryptInFlight) return; // prevent concurrent decrypts
+    _decryptInFlight = true;
     decrypting = true;
     decryptError = '';
     try {
       const { iv, ciphertext } = decodeResultPayload(result.payload);
-      const plaintext = await decryptPayload(aesKey, iv, ciphertext);
+
+      const decryptPromise = decryptPayload(aesKey, iv, ciphertext);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Decryption timed out — the result may be corrupted')), DECRYPT_TIMEOUT_MS)
+      );
+      const plaintext = await Promise.race([decryptPromise, timeoutPromise]);
+
       const blob = new Blob([plaintext], { type: 'image/png' });
       imageUrl = URL.createObjectURL(blob);
     } catch (err) {
       decryptError = `Decryption failed: ${err.message}`;
     } finally {
       decrypting = false;
+      _decryptInFlight = false;
     }
+  }
+
+  function retryDecrypt() {
+    decryptError = '';
+    decrypt();
   }
 
   async function handleSave() {
@@ -90,6 +107,7 @@
       <p class="status">DECRYPTING…</p>
     {:else if decryptError}
       <p class="error">{decryptError}</p>
+      <button onclick={retryDecrypt} class="btn btn-ghost">Retry</button>
     {:else if imageUrl}
       <img src={imageUrl} alt="Generated result" class="result-image" />
       <div class="actions">

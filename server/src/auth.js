@@ -20,7 +20,7 @@ export function initAuth() {
     throw new Error('[auth] JWT_SECRET must be set in .env');
   }
   if (!PC_SECRET || PC_SECRET === 'changeme') {
-    console.warn('[auth] WARNING: PC_SECRET is not set or is still "changeme".');
+    throw new Error('[auth] PC_SECRET must be set in .env to a secure value (not "changeme").');
   }
   console.log('[auth] Initialized.');
 }
