@@ -160,7 +160,7 @@
   },
   "164": {
     "inputs": {
-      "clip_name": "Qwen3-8B-Q4_K_M.gguf",
+      "clip_name": "Qwen_Qwen3-8B-Q4_K_M.gguf",
       "type": "flux2",
       "device": "default"
     },

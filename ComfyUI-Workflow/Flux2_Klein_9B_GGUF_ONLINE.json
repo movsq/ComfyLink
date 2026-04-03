@@ -1,7 +1,7 @@
 {
   "id": "92112d97-bb64-4b44-86f2-ea5691ef8f6e",
   "revision": 0,
-  "last_node_id": 178,
+  "last_node_id": 181,
   "last_link_id": 325,
   "nodes": [
     {
@@ -43,40 +43,6 @@
       ]
     },
     {
-      "id": 163,
-      "type": "LoaderGGUFAdvanced",
-      "pos": [
-        -478.3333637623143,
-        506.66664218502814
-      ],
-      "size": [
-        291.80989583333337,
-        149.97395833333334
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            305
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoaderGGUFAdvanced"
-      },
-      "widgets_values": [
-        "flux-2-klein-9b-Q4_K_M.gguf",
-        "bfloat16",
-        "bfloat16",
-        false
-      ]
-    },
-    {
       "id": 164,
       "type": "ClipLoaderGGUF",
       "pos": [
@@ -88,7 +54,7 @@
         124.42708333333334
       ],
       "flags": {},
-      "order": 2,
+      "order": 1,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -104,7 +70,7 @@
         "Node name for S&R": "ClipLoaderGGUF"
       },
       "widgets_values": [
-        "qwen3-8b-q4_k_m.gguf",
+        "Qwen_Qwen3-8B-Q4_K_M.gguf",
         "flux2",
         "default"
       ]
@@ -121,7 +87,7 @@
         314.0000000000001
       ],
       "flags": {},
-      "order": 3,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -159,7 +125,7 @@
         68.88020833333334
       ],
       "flags": {},
-      "order": 4,
+      "order": 3,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -200,7 +166,7 @@
         218.59375
       ],
       "flags": {},
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -263,7 +229,7 @@
         302.7213541666667
       ],
       "flags": {},
-      "order": 11,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -329,7 +295,7 @@
         218.59375
       ],
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -385,7 +351,7 @@
         82
       ],
       "flags": {},
-      "order": 5,
+      "order": 4,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -419,7 +385,7 @@
         224.42708333333334
       ],
       "flags": {},
-      "order": 12,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
@@ -486,7 +452,7 @@
         60
       ],
       "flags": {},
-      "order": 13,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -528,7 +494,7 @@
         68.88020833333334
       ],
       "flags": {},
-      "order": 6,
+      "order": 5,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -561,7 +527,7 @@
         120
       ],
       "flags": {},
-      "order": 9,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -613,7 +579,7 @@
         325.98958333333337
       ],
       "flags": {},
-      "order": 14,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -675,7 +641,7 @@
         120
       ],
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -727,7 +693,7 @@
         224.42708333333334
       ],
       "flags": {},
-      "order": 18,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
@@ -794,7 +760,7 @@
         60
       ],
       "flags": {},
-      "order": 15,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -839,7 +805,7 @@
         1220
       ],
       "flags": {},
-      "order": 16,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -868,7 +834,7 @@
         698.4635416666667
       ],
       "flags": {},
-      "order": 17,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
@@ -917,7 +883,7 @@
         656.3802083333334
       ],
       "flags": {},
-      "order": 19,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
@@ -933,6 +899,87 @@
         "ver": "0.9.2"
       },
       "widgets_values": []
+    },
+    {
+      "id": 163,
+      "type": "LoaderGGUFAdvanced",
+      "pos": [
+        -478.3333637623143,
+        506.66664218502814
+      ],
+      "size": [
+        291.80989583333337,
+        149.97395833333334
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            305
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoaderGGUFAdvanced"
+      },
+      "widgets_values": [
+        "flux-2-klein-9b-Q4_K_M.gguf",
+        "bfloat16",
+        "bfloat16",
+        false
+      ]
+    },
+    {
+      "id": 181,
+      "type": "LoraLoader",
+      "pos": [
+        -210,
+        275
+      ],
+      "size": [
+        290.4380859375,
+        126
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": null
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoraLoader"
+      },
+      "widgets_values": [
+        "lora1.safetensors",
+        1,
+        1
+      ]
     }
   ],
   "links": [
@@ -1157,10 +1204,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.8140274938684242,
+      "scale": 1.0834705943388734,
       "offset": [
-        1261.93742412458,
-        -133.36443083777752
+        814.1684084545449,
+        -77.57270088460572
       ]
     },
     "frontendVersion": "1.39.19",

@@ -47,7 +47,8 @@ Download these into the indicated ComfyUI model directories before running.
 | File | Directory | Download |
 |------|-----------|----------|
 | `flux-2-klein-9b-Q4_K_M.gguf` (default), `Q5_K_M`, `Q6_K`, or `Q8_0` variant | `models/unet/` | [Hugging Face — FLUX.2-klein-9B-GGUF (all quants)](https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main) — download the quant you want |
-| `qwen3-8b-q4_k_m.gguf` | `models/clip/` | [Hugging Face — Qwen3 8B GGUF](https://huggingface.co/Aldaris/Qwen3-8B-Q4_K_M-GGUF/blob/main/qwen3-8b-q4_k_m.gguf) |
+| `Qwen_Qwen3-8B-Q4_K_M.gguf` (**default**) | `models/clip/` | [Hugging Face — bartowski/Qwen_Qwen3-8B-GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/tree/main) — recommended |
+| `qwen3-8b-q4_k_m.gguf` (alternative) | `models/clip/` | [Hugging Face — Aldaris/Qwen3-8B-Q4_K_M-GGUF](https://huggingface.co/Aldaris/Qwen3-8B-Q4_K_M-GGUF/blob/main/qwen3-8b-q4_k_m.gguf) |
 | `flux2-vae.safetensors` | `models/vae/` | [Hugging Face — Flux 2 VAE](https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
 
 > **VRAM requirement:** Q4_K_M (default, ~5.9 GB) runs comfortably on 12 GB VRAM.
@@ -91,7 +92,7 @@ Install these via **ComfyUI Manager** (search by name) or clone directly.
 | 159 | `AD_image-concat-advanced` | Vertically concatenates Image 1 + Image 2 (2-image mode only) |
 | 161 | `AD_image-concat-advanced` | Horizontally concatenates inputs + output (2-image mode only) |
 | 163 | `LoaderGGUFAdvanced` | Loads the GGUF unet model (quant chosen at job time; default `Q4_K_M`) |
-| 164 | `ClipLoaderGGUF` | Loads `qwen3-8b-q4_k_m.gguf` CLIP |
+| 164 | `ClipLoaderGGUF` | Loads the CLIP model (default `Qwen_Qwen3-8B-Q4_K_M.gguf`; selectable per job from the UI) |
 | 177 | `LoadImage` | Image 1 input (filename set at runtime) |
 | 178 | `LoadImage` | Image 2 input (filename set at runtime, 2-image mode only) |
 | 181 | `LoraLoader` | Optional LoRA adapter — wired between model/CLIP loaders and consumers when `lora ≠ "none"`, removed otherwise |

@@ -24,7 +24,7 @@
   let lora = $state('none');
   let loraStrength = $state(0.75);
   let quantization = $state('flux-2-klein-9b-Q4_K_M.gguf');
-  let clipModel = $state('Qwen3-8B-Q4_K_M.gguf');
+  let clipModel = $state('Qwen_Qwen3-8B-Q4_K_M.gguf');
   let status = $state('idle'); // 'idle' | 'encrypting' | 'sent' | 'error'
   let error = $state('');
   let currentJobId = $state(null);
@@ -63,13 +63,17 @@
     { value: 'lora2.safetensors', label: 'LoRa - N2' },
   ];
   const quantizationOptions = [
-    { value: 'flux-2-klein-9b-Q4_K_M.gguf', label: 'flux-2-klein-9b-Q4_K_M.gguf', size: '5.91 GB' },
-    { value: 'flux-2-klein-9b-Q5_K_M.gguf', label: 'flux-2-klein-9b-Q5_K_M.gguf', size: '7.02 GB' },
-    { value: 'flux-2-klein-9b-Q6_K.gguf',   label: 'flux-2-klein-9b-Q6_K.gguf',   size: '7.87 GB' },
+    { value: 'flux-2-klein-9b-Q4_K_M.gguf',      label: 'flux-2-klein-9b-Q4_K_M.gguf',      size: '5.91 GB' },
+    { value: 'flux-2-klein-9b-Q5_K_M.gguf',      label: 'flux-2-klein-9b-Q5_K_M.gguf',      size: '7.02 GB' },
+    { value: 'flux-2-klein-9b-Q6_K.gguf',         label: 'flux-2-klein-9b-Q6_K.gguf',         size: '7.87 GB' },
+    { value: 'Flux-2-Klein-9B-KV-Q4_K_M.gguf',   label: 'Flux-2-Klein-9B-KV-Q4_K_M.gguf',   size: '5.72 GB' },
+    { value: 'Flux-2-Klein-9B-KV-Q5_K_M.gguf',   label: 'Flux-2-Klein-9B-KV-Q5_K_M.gguf',   size: '6.81 GB' },
+    { value: 'Flux-2-Klein-9B-KV-Q6_K.gguf',     label: 'Flux-2-Klein-9B-KV-Q6_K.gguf',     size: '7.87 GB' },
   ];
   const clipModelOptions = [
-    { value: 'Qwen3-8B-Q4_K_M.gguf',    label: 'Qwen3-8B-Q4_K_M.gguf',    size: '5.03 GB' },
-    { value: 'Qwen3-8B-Q4_K_M_v2.gguf', label: 'Qwen3-8B-Q4_K_M_v2.gguf', size: '5.03 GB' },
+    { value: 'Qwen_Qwen3-8B-Q4_K_M.gguf', label: 'Qwen_Qwen3-8B-Q4_K_M.gguf', size: '5.03 GB' },
+    { value: 'Qwen3-8B-Q4_K_M.gguf',      label: 'Qwen3-8B-Q4_K_M.gguf',      size: '5.03 GB' },
+    { value: 'Qwen3-8B-Q4_K_M_v2.gguf',   label: 'Qwen3-8B-Q4_K_M_v2.gguf',   size: '5.03 GB' },
   ];
 
   let seedModeLabel     = $derived(seedModeOptions.find(o => o.value === seedMode)?.label ?? seedMode);
@@ -1579,7 +1583,7 @@
   }
 
   .trigger-size {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: #6c7585;
     padding: 0 0.5rem;
     flex-shrink: 0;
@@ -1593,7 +1597,7 @@
 
   .quant-opt-size {
     color: #525a66;
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     padding-left: 0.5rem;
     flex-shrink: 0;
   }
