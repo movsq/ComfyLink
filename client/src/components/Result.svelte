@@ -6,6 +6,7 @@
   let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null } = $props();
 
   let imageUrl = $state(null);
+  let imageBytes = $state(null); // raw PNG bytes, kept alongside imageUrl for save
   let decryptError = $state('');
   let decrypting = $state(true);
   let saving = $state(false);
@@ -43,6 +44,7 @@
       );
       const plaintext = await Promise.race([decryptPromise, timeoutPromise]);
 
+      imageBytes = plaintext;
       const blob = new Blob([plaintext], { type: 'image/png' });
       imageUrl = URL.createObjectURL(blob);
     } catch (err) {
@@ -71,9 +73,8 @@
       // Generate thumbnail
       const thumbBuf = await generateThumbnail(imageUrl);
 
-      // Get full image data
-      const fullResp = await fetch(imageUrl);
-      const fullBuf = new Uint8Array(await fullResp.arrayBuffer());
+      // Use cached bytes — avoids fetch(blob:) which is blocked by CSP connect-src
+      const fullBuf = imageBytes;
 
       // Encrypt both
       const { ciphertext: encThumb, iv: ivThumb } = await encryptBlob(masterKey, thumbBuf);
