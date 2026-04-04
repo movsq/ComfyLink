@@ -9,6 +9,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - JWT_SECRET=${JWT_SECRET}
       - SESSION_TTL_MS=${SESSION_TTL_MS:-86400000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - DB_PATH=/app/data/comfylink.db
     volumes:
       - server_data:/app/data
