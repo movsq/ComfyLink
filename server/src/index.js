@@ -24,7 +24,6 @@ import {
   createUser,
   getUserById,
   validateInviteCode,
-  decrementCodeUses,
   atomicDecrementCodeUses,
   findInviteCodeById,
   createInviteCode,
@@ -182,6 +181,10 @@ app.post('/auth/google', async (req, res) => {
     if (!code) {
       return res.status(400).json({ error: 'Invalid or expired invite code' });
     }
+    const codeResult = atomicDecrementCodeUses(code.id);
+    if (codeResult.changes === 0) {
+      return res.status(400).json({ error: 'Invalid or expired invite code' });
+    }
     const user = createUser({
       googleSub: googleUser.sub,
       email: googleUser.email,
@@ -189,7 +192,6 @@ app.post('/auth/google', async (req, res) => {
       picture: googleUser.picture,
       status: 'active',
     });
-    decrementCodeUses(code.id);
     notifyAdmins('users_changed');
     notifyAdmins('codes_changed');
     const token = signJwt({

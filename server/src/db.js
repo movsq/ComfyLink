@@ -133,10 +133,6 @@ const stmtCreateCode = db.prepare(`
 const stmtFindCode = db.prepare('SELECT * FROM invite_codes WHERE code = ?');
 const stmtFindCodeById = db.prepare('SELECT * FROM invite_codes WHERE id = ?');
 
-const stmtDecrementCodeUses = db.prepare(
-  'UPDATE invite_codes SET uses_remaining = uses_remaining - 1 WHERE id = ?',
-);
-
 // Atomic decrement: only succeeds if uses_remaining > 0. Returns result.changes = 1 on success.
 const stmtAtomicDecrementCodeUses = db.prepare(
   'UPDATE invite_codes SET uses_remaining = uses_remaining - 1 WHERE id = ? AND uses_remaining > 0',
@@ -289,10 +285,6 @@ export function findInviteCode(code) {
 
 export function findInviteCodeById(id) {
   return stmtFindCodeById.get(id) ?? null;
-}
-
-export function decrementCodeUses(id) {
-  return stmtDecrementCodeUses.run(id);
 }
 
 /**
