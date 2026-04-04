@@ -235,7 +235,7 @@
   }
   .title {
     font-family: 'DM Mono', monospace;
-    font-size: 0.65rem; letter-spacing: 0.22em; color: #7b9cbf;
+    font-size: 0.65rem; letter-spacing: 0.22em; color: #527490;
   }
   .close-btn {
     width: 2rem; height: 2rem; border-radius: 50%;
@@ -249,7 +249,7 @@
 
   .status {
     font-family: 'DM Mono', monospace;
-    color: #7b9cbf; font-size: 0.8rem; letter-spacing: 0.08em; margin: 0; text-align: center;
+    color: #527490; font-size: 0.8rem; letter-spacing: 0.08em; margin: 0; text-align: center;
   }
   .error {
     font-family: 'DM Mono', monospace;
@@ -278,7 +278,7 @@
     padding: 0;
   }
   .thumb-card:hover {
-    border-color: rgba(123, 156, 191, 0.3);
+    border-color: rgba(82, 116, 144, 0.3);
     transform: scale(1.02);
   }
   .thumb-card:active { transform: scale(0.96); }
@@ -357,8 +357,8 @@
   }
   .btn:active { transform: scale(0.95); filter: brightness(0.85); }
 
-  .btn-accent { background: #7b9cbf; color: #09090b; }
-  .btn-accent:hover { background: #a3bdd4; }
+  .btn-accent { background: #527490; color: #09090b; }
+  .btn-accent:hover { background: #7d9db6; }
 
   .btn-danger {
     background: rgba(196, 112, 112, 0.15);

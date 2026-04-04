@@ -50,7 +50,14 @@ import {
   getJob,
   updateJobStatus,
   pruneOldJobs,
+  getNextPendingJob,
+  getActiveJob,
+  getUserJobCount,
+  getQueueState,
+  deleteJob,
 } from './jobs.js';
+
+const MAX_QUEUE_PER_USER = 3;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -107,6 +114,39 @@ function notifyUserSockets(userId, usesRemaining) {
   for (const ws of sockets) {
     sendJson(ws, { type: 'uses_updated', usesRemaining });
   }
+}
+
+// ── Queue broadcast ──────────────────────────────────────────────────────────
+// All connected phone sockets (for queue_update broadcasts)
+const allPhoneSockets = new Map(); // Map<WebSocket, { userId: string|null }>
+
+function registerPhoneSocket(ws, userId) {
+  allPhoneSockets.set(ws, { userId });
+}
+
+function unregisterPhoneSocket(ws) {
+  allPhoneSockets.delete(ws);
+}
+
+/** Broadcast queue_update to all connected phone sockets. */
+function broadcastQueueUpdate() {
+  for (const [ws, meta] of allPhoneSockets) {
+    if (ws.readyState !== 1) continue;
+    const state = getQueueState(meta.userId);
+    sendJson(ws, { type: 'queue_update', ...state });
+  }
+}
+
+/** Dispatch the next pending job to PC, if PC is connected and no job is processing. */
+function dispatchNextJob() {
+  if (!pcSocket || pcSocket.readyState !== 1) return;
+  if (getActiveJob()) return; // already processing one
+  const next = getNextPendingJob();
+  if (!next) return;
+  sendJson(pcSocket, { type: 'job', jobId: next.id, payload: next.payload });
+  updateJobStatus(next.id, 'processing');
+  console.log(`[queue] Dispatched job ${next.id} to PC.`);
+  broadcastQueueUpdate();
 }
 function sendJson(ws, obj) {
   if (ws.readyState === 1 /* OPEN */) {
@@ -458,12 +498,21 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
     return res.status(413).json({ error: 'Image too large (max 20MB)' });
   }
 
+  // Clamp fullSizeBytes to actual buffer length — client value is advisory metadata
+  // for display only, but must not exceed what we actually stored.
+  const sanitizedFullSizeBytes = Math.min(
+    Number.isFinite(Number(fullSizeBytes)) && Number(fullSizeBytes) > 0
+      ? Math.round(Number(fullSizeBytes))
+      : fullBuf.length,
+    fullBuf.length,
+  );
+
   const result = createStoredResult(req.user.userId, {
     encryptedThumb: Buffer.from(encryptedThumb, 'base64'),
     encryptedFull: fullBuf,
     ivThumb: Buffer.from(ivThumb, 'base64'),
     ivFull: Buffer.from(ivFull, 'base64'),
-    fullSizeBytes: fullSizeBytes ?? fullBuf.length,
+    fullSizeBytes: sanitizedFullSizeBytes,
   });
 
   res.json(result);
@@ -534,7 +583,11 @@ app.post('/auth/code', (req, res) => {
 
 /** GET /admin/users — list users, optionally filter by status */
 app.get('/admin/users', requireAdmin, (req, res) => {
+  const VALID_STATUSES = ['pending', 'active', 'suspended'];
   const status = req.query.status ?? null;
+  if (status !== null && !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status filter' });
+  }
   const users = getAllUsers(status);
   res.json(users.map(u => ({
     id: u.id,
@@ -726,6 +779,9 @@ async function handlePcSocket(ws) {
       console.log('[pc] Disconnected.');
       if (pcSocket === ws) pcSocket = null;
     });
+
+    // Dispatch any pending jobs now that PC is connected
+    dispatchNextJob();
   });
 }
 
@@ -745,15 +801,23 @@ function handlePcMessage(raw) {
   }
 
   if (msg.type === 'progress') {
+    // Validate numeric fields before forwarding — a compromised PC could push
+    // NaN, Infinity, or strings that would corrupt client state.
+    const value = Number(msg.value);
+    const max   = Number(msg.max);
+    if (!Number.isFinite(value) || !Number.isFinite(max) || value < 0 || max < 0) return;
     const job = getJob(msg.jobId);
-    if (job?.phoneWs?.readyState === 1) {
-      sendJson(job.phoneWs, {
-        type: 'progress',
-        jobId: msg.jobId,
-        value: msg.value,
-        max: msg.max,
-        node: msg.node ?? null,
-      });
+    // Broadcast value/max to all phone clients (drives the progress bar for everyone).
+    // node is internal ComfyUI telemetry — send it only to the job owner.
+    const broadcastPayload = { type: 'progress', jobId: msg.jobId, value, max };
+    for (const [ws] of allPhoneSockets) {
+      if (ws.readyState !== 1) continue;
+      if (ws === job?.phoneWs) {
+        // Job owner gets the full payload including node
+        sendJson(ws, { ...broadcastPayload, node: msg.node ?? null });
+      } else {
+        sendJson(ws, broadcastPayload);
+      }
     }
     return;
   }
@@ -766,6 +830,9 @@ function handlePcMessage(raw) {
     }
     if (job.status === 'cancelled') {
       console.log(`[pc] Ignoring result for cancelled job ${msg.jobId}`);
+      deleteJob(msg.jobId);
+      dispatchNextJob();
+      broadcastQueueUpdate();
       return;
     }
     completeJob(msg.jobId, msg.payload);
@@ -773,15 +840,24 @@ function handlePcMessage(raw) {
       sendJson(job.phoneWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
     }
     console.log(`[pc] Job ${msg.jobId} completed.`);
+    // Clean up and dispatch next
+    dispatchNextJob();
+    broadcastQueueUpdate();
     return;
   }
 
   if (msg.type === 'error') {
     const job = getJob(msg.jobId);
-    if (job?.phoneWs?.readyState === 1) {
-      sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: msg.message });
+    if (job) {
+      updateJobStatus(msg.jobId, 'error');
+      if (job.phoneWs?.readyState === 1) {
+        sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: msg.message });
+      }
     }
     console.warn(`[pc] Error for job ${msg.jobId}: ${msg.message}`);
+    // Dispatch next job after error
+    dispatchNextJob();
+    broadcastQueueUpdate();
     return;
   }
 
@@ -794,6 +870,14 @@ function handlePhoneSocket(ws, jwtPayload) {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
+  // Derive a stable userId for queue tracking
+  const queueUserId = jwtPayload.type === 'code_user'
+    ? `code:${jwtPayload.codeId}`
+    : `user:${jwtPayload.userId}`;
+
+  // Register in all tracking maps
+  registerPhoneSocket(ws, queueUserId);
+
   if (jwtPayload.type === 'code_user') {
     registerCodeSocket(jwtPayload.codeId, ws);
     // Send initial code status so the client can show a warning immediately
@@ -805,6 +889,10 @@ function handlePhoneSocket(ws, jwtPayload) {
     const userRow = getUserById(jwtPayload.userId);
     if (userRow) sendJson(ws, { type: 'uses_updated', usesRemaining: userRow.uses_remaining ?? null });
   }
+
+  // Send initial queue state
+  const initialState = getQueueState(queueUserId);
+  sendJson(ws, { type: 'queue_update', ...initialState });
 
   // ── Per-socket submit rate limiter (max 10 submits / 60 s sliding window) ────
   const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -836,20 +924,31 @@ function handlePhoneSocket(ws, jwtPayload) {
         return;
       }
       submitTimestamps.push(now);
-      handleJobSubmit(ws, msg, jwtPayload);
+      handleJobSubmit(ws, msg, jwtPayload, queueUserId);
     } else if (msg.type === 'cancel') {
-      if (typeof msg.jobId === 'string' && msg.jobId) {
-        updateJobStatus(msg.jobId, 'cancelled');
-      }
-      if (pcSocket && pcSocket.readyState === 1 && typeof msg.jobId === 'string') {
-        sendJson(pcSocket, { type: 'cancel', jobId: msg.jobId });
+      // Validate jobId length to prevent oversized strings probing internal state
+      if (typeof msg.jobId === 'string' && msg.jobId && msg.jobId.length <= 64) {
+        const job = getJob(msg.jobId);
+        if (job && job.userId === queueUserId) {
+          const wasProcessing = job.status === 'processing';
+          updateJobStatus(msg.jobId, 'cancelled');
+          if (pcSocket && pcSocket.readyState === 1 && wasProcessing) {
+            sendJson(pcSocket, { type: 'cancel', jobId: msg.jobId });
+          }
+          // If cancelled a processing job, dispatch next
+          if (wasProcessing) dispatchNextJob();
+          broadcastQueueUpdate();
+        }
       }
     } else {
-      sendJson(ws, { type: 'error', message: `Unknown message type: ${msg.type}` });
+      // Do NOT echo msg.type back — an attacker could send a large string to
+      // inflate log output or probe error serialisation.
+      sendJson(ws, { type: 'error', message: 'Unknown message type' });
     }
   });
 
   ws.on('close', () => {
+    unregisterPhoneSocket(ws);
     if (jwtPayload.type === 'code_user') {
       unregisterCodeSocket(jwtPayload.codeId, ws);
     } else if (jwtPayload.userId) {
@@ -859,7 +958,7 @@ function handlePhoneSocket(ws, jwtPayload) {
   });
 }
 
-function handleJobSubmit(phoneWs, msg, jwtPayload = null) {
+function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
   if (!pcSocket || pcSocket.readyState !== 1) {
     sendJson(phoneWs, { type: 'no_pc' });
     return;
@@ -867,6 +966,12 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null) {
 
   if (typeof msg.payload !== 'string') {
     sendJson(phoneWs, { type: 'error', message: 'Missing payload' });
+    return;
+  }
+
+  // ── Per-user queue limit ─────────────────────────────────────────────────────
+  if (queueUserId && getUserJobCount(queueUserId) >= MAX_QUEUE_PER_USER) {
+    sendJson(phoneWs, { type: 'error', message: 'queue_full' });
     return;
   }
 
@@ -922,16 +1027,21 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null) {
         return;
       }
       notifyAdmins('codes_changed');
-      notifyCodeUsers(jwtPayload.codeId, codeRow.uses_remaining - 1);
+      // Re-read after atomic decrement so we send the authoritative value,
+      // not a stale pre-decrement calculation (same pattern used for Google users above).
+      const updatedCode = findInviteCodeById(jwtPayload.codeId);
+      notifyCodeUsers(jwtPayload.codeId, updatedCode?.uses_remaining ?? 0);
     }
   }
 
   const jobId = uuidv4();
-  createJob(jobId, phoneWs);
+  createJob(jobId, phoneWs, queueUserId, msg.payload);
   sendJson(phoneWs, { type: 'queued', jobId });
-  sendJson(pcSocket, { type: 'job', jobId, payload: msg.payload });
-  updateJobStatus(jobId, 'processing');
-  console.log(`[relay] Job ${jobId} dispatched.`);
+  console.log(`[queue] Job ${jobId} added to queue.`);
+
+  // Try to dispatch immediately if nothing is processing
+  dispatchNextJob();
+  broadcastQueueUpdate();
 }
 
 // ── Admin socket handler ────────────────────────────────────────────────────────────

@@ -9,10 +9,14 @@
     encodeJobPayload,
   } from '../lib/crypto.js';
 
-  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), previewResult, onPreview, onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null } = $props();
+  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null } = $props();
 
   let codeDepleted = $derived(codeUsesRemaining !== null && codeUsesRemaining === 0);
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
+
+  // Queue-derived state
+  let myQueueCount = $derived(queueState.queue.filter(j => j.isYours).length);
+  let queueFull = $derived(myQueueCount >= 3);
 
   // ── Per-form local state ──────────────────────────────────────────────
   let imageFile1 = $state(null);
@@ -26,10 +30,8 @@
   let loraStrength = $state(0.75);
   let quantization = $state('flux-2-klein-9b-Q4_K_M.gguf');
   let clipModel = $state('Qwen_Qwen3-8B-Q4_K_M.gguf');
-  let status = $state('idle'); // 'idle' | 'encrypting' | 'sent' | 'error'
+  let status = $state('idle'); // 'idle' | 'encrypting' | 'error'
   let error = $state('');
-  let currentJobId = $state(null);
-  let _timeoutId = null;
 
   // ── Config overlay state ──────────────────────────────────────────────
   let configOpen = $state(false);
@@ -98,53 +100,41 @@
     return { destroy() { document.removeEventListener('pointerdown', handle, true); } };
   }
 
-  // ── Progress state ────────────────────────────────────────────────────
+  // ── Progress state (tracks the currently processing job) ────────────
   let progressValue = $state(0);
   let progressMax   = $state(1);
   let progressPhase = $state(1);
   let _prevValue    = 0;
+  let _trackingJobId = null;
 
   $effect(() => {
     if (!ws) return;
     const offs = [];
 
     offs.push(ws.on('progress', ({ jobId, value, max }) => {
-      if (currentJobId && jobId !== currentJobId) return;
+      // Only track progress for the active job
+      if (queueState.activeJobId && jobId !== queueState.activeJobId) return;
+      if (_trackingJobId !== jobId) {
+        // New job started processing — reset progress
+        _trackingJobId = jobId;
+        progressValue = 0;
+        progressMax = 1;
+        progressPhase = 1;
+        _prevValue = 0;
+      }
       if (value < _prevValue && _prevValue >= progressMax * 0.9) progressPhase += 1;
       _prevValue    = value;
       progressValue = value;
       progressMax   = max > 0 ? max : 1;
     }));
 
-    offs.push(ws.on('queued', ({ jobId }) => {
-      currentJobId = jobId;
-    }));
-
-    offs.push(ws.on('error', ({ jobId }) => {
-      // Only reset if no job queued yet, or if the error is explicitly for our job
-      if (status === 'sent' && (!currentJobId || jobId === currentJobId)) reset();
-    }));
-
-    offs.push(ws.on('no_pc', () => {
-      // Only reset if the job hasn't been accepted by the server yet
-      if (status === 'sent' && !currentJobId) reset();
-    }));
-
-    offs.push(ws.on('close', () => {
-      // Don't reset here — the socket will reconnect. If the job was already
-      // queued, processing continues. If it wasn't queued, the 'open' handler
-      // below will detect that and reset cleanly after reconnect.
+    offs.push(ws.on('error', () => {
+      if (status === 'error' || status === 'idle') {
+        error = '';
+      }
     }));
 
     offs.push(ws.on('open', () => {
-      // Socket reconnected. If we're still waiting for a queued confirmation,
-      // the job was lost in the disconnect — reset so the user can retry.
-      if (status === 'sent' && !currentJobId) {
-        error = 'Connection lost — please try again';
-        reset();
-      }
-      // If we were sitting on a stale error (e.g. no_pc, timeout), clear it
-      // now that the connection is healthy again.
       if (status === 'error' || status === 'idle') {
         error = '';
       }
@@ -153,24 +143,27 @@
     return () => offs.forEach(off => off());
   });
 
+  // Reset progress whenever the server's active job changes (handles stale pct between jobs)
+  $effect(() => {
+    const activeId = queueState.activeJobId;
+    if (_trackingJobId !== activeId) {
+      progressValue = 0;
+      progressMax = 1;
+      progressPhase = 1;
+      _prevValue = 0;
+      _trackingJobId = activeId;
+    }
+  });
+
   function resetProgress() {
     progressValue = 0;
     progressMax   = 1;
     progressPhase = 1;
     _prevValue    = 0;
+    _trackingJobId = null;
   }
 
   let pct = $derived(progressMax > 0 ? Math.round((progressValue / progressMax) * 100) : 0);
-
-  // ── Auto-reset when App clears the result (New Job from modal) ────────
-  let _hadResult = false;
-  $effect(() => {
-    if (previewResult) { _hadResult = true; }
-    if (!previewResult && _hadResult && status === 'sent') {
-      reset();
-      _hadResult = false;
-    }
-  });
 
   // ── Image helpers ─────────────────────────────────────────────────────
   function setSlot1(file) {
@@ -314,9 +307,8 @@
   // ── Submit ────────────────────────────────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!prompt.trim() || status !== 'idle') return;
+    if (!prompt.trim() || status !== 'idle' || queueFull) return;
     error = '';
-    _hadResult = false;  // prevent the _hadResult effect from resetting this new submission
     status = 'encrypting';
     try {
       const pcPubKeyB64  = await getPCPublicKey(token);
@@ -329,36 +321,39 @@
       const { iv, ciphertext } = await encryptPayload(aesKey, plaintext);
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
+
+      // Capture form state at submit time for queue preview display
+      const capturedPromptText = prompt.trim();
+      const capturedPreview1 = imagePreviewUrl1;
+      const capturedPreview2 = imagePreviewUrl2;
+
+      // Listen for the queued response to capture jobId
+      const offQueued = ws.on('queued', ({ jobId }) => {
+        offQueued();
+        onJobSubmitted({ aesKey, jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
+        // Advance seed for next submission
+        if (seedMode === 'randomize') seed = Math.floor(Math.random() * 2 ** 32);
+        else if (seedMode === 'increment') seed = seed + 1;
+        else if (seedMode === 'decrement') seed = seed - 1;
+      });
+
       const sent = ws.send({ type: 'submit', payload });
-      if (!sent) throw new Error('WebSocket is not connected');
-      status = 'sent';
-      onJobSubmitted({ aesKey });
-      clearTimeout(_timeoutId);
-      _timeoutId = setTimeout(() => {
-        if (status === 'sent') {
-          error = 'Generation timed out — please try again';
-          reset();
-        }
-      }, 120_000);
+      if (!sent) {
+        offQueued();
+        throw new Error('WebSocket is not connected');
+      }
+      // Return to idle immediately so user can queue more jobs
+      status = 'idle';
     } catch (err) {
       error = err.message;
       status = 'error';
+      setTimeout(() => { if (status === 'error') status = 'idle'; }, 3000);
     }
   }
 
-  function handleCancel() {
-    ws.send({ type: 'cancel', jobId: currentJobId });
-    reset();
-    onCancel();
-  }
-
-  function reset() {
-    status = 'idle';
-    error = '';
-    currentJobId = null;
-    clearTimeout(_timeoutId);
-    _timeoutId = null;
-    resetProgress();
+  function handleCancelJob(jobId) {
+    ws.send({ type: 'cancel', jobId });
+    onCancel({ jobId });
   }
 </script>
 
@@ -755,32 +750,114 @@
 
       <!-- Generate row -->
       <div class="generate-row">
-        {#if status === 'sent' && previewResult}
-          <button type="button" class="btn-generate view-result" onclick={onPreview}>
-            VIEW RESULT
-          </button>
-          <button type="button" class="btn-generate btn-new-job" onclick={onNewJob}>
-            NEW JOB
-          </button>
-        {:else if status === 'sent'}
-          <button
-            type="button"
-            class="btn-generate generating"
-            disabled
-            style:--progress="{pct}%"
-          >
-            GENERATING
-          </button>
-          <button type="button" class="btn-cancel-icon" onclick={handleCancel} aria-label="Cancel generation">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </button>
-        {:else}
-          <button type="submit" class="btn-generate" disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted}>
-            {status === 'encrypting' ? 'ENCRYPTING...' : 'GENERATE'}
-          </button>
-        {/if}
+        <button type="submit" class="btn-generate" class:btn-queue-full={queueFull} disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted || queueFull}>
+          {#if status === 'encrypting'}
+            ENCRYPTING...
+          {:else if queueFull}
+            QUEUED JOBS ({myQueueCount}/3)
+          {:else}
+            ADD TO QUEUE ({myQueueCount}/3)
+          {/if}
+        </button>
       </div>
     </form>
+
+    <!-- ── Queue panel ──────────────────────────────────────────────── -->
+    {#if queueState.queue.length > 0 || dismissedResults.length > 0}
+      <div class="queue-panel">
+        <div class="queue-header">
+          <span class="queue-title">QUEUE</span>
+          <div class="queue-header-right">
+            <span class="queue-mine-count" class:queue-mine-full={queueFull}>{myQueueCount}/3 YOUR SLOTS</span>
+            <span class="queue-total-count">{queueState.queue.length} total</span>
+          </div>
+        </div>
+        {#if queueState.queue.length > 0}
+          <div class="queue-list">
+            {#each queueState.queue as item (item.jobId)}
+              {@const jobMeta = item.isYours ? pendingJobs.get(item.jobId) : null}
+              <div class="queue-item" class:queue-mine={item.isYours} class:queue-theirs={!item.isYours} class:queue-active={item.status === 'processing'}>
+                <div class="queue-main-row">
+                  <span class="queue-pos">#{item.position}</span>
+                  {#if item.isYours}
+                    <span class="queue-mine-badge">YOU</span>
+                  {:else}
+                    <span class="queue-theirs-badge">OTHER</span>
+                  {/if}
+                  <span class="queue-status" class:queue-processing={item.status === 'processing'}>
+                    {#if item.status === 'processing'}
+                      {#if pct > 0}
+                        <span class="queue-progress-inline" style:--progress="{pct}%">PROCESSING {pct}%</span>
+                      {:else}
+                        <span class="queue-progress-inline queue-progress-indeterminate">PROCESSING</span>
+                      {/if}
+                    {:else}
+                      <span class="queue-dot waiting"></span> WAITING
+                    {/if}
+                  </span>
+                  {#if item.isYours && (jobMeta?.preview1 || jobMeta?.preview2)}
+                    <div class="queue-thumbs">
+                      {#if jobMeta.preview1}
+                        <img src={jobMeta.preview1} alt="" class="queue-thumb" draggable="false" />
+                      {/if}
+                      {#if jobMeta.preview2}
+                        <img src={jobMeta.preview2} alt="" class="queue-thumb" draggable="false" />
+                      {/if}
+                    </div>
+                  {/if}
+                  <span class="queue-eta">
+                    {#if item.status === 'pending'}
+                      ~{Math.max(1, Math.round(item.position * queueState.avgDuration / 60))}m
+                    {/if}
+                  </span>
+                  {#if item.isYours}
+                    <button type="button" class="queue-cancel" onclick={() => handleCancelJob(item.jobId)} aria-label="Cancel job">
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </button>
+                  {/if}
+                </div>
+                {#if item.isYours && jobMeta?.promptText}
+                  <div class="queue-prompt-row">
+                    <span class="queue-prompt-scroll">
+                      <span class="queue-prompt-inner">{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                    </span>
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- ── Completed jobs ──────────────────────────────────────── -->
+        {#if dismissedResults.length > 0}
+          <div class="queue-finished-section">
+            <div class="queue-finished-header">
+              <span class="queue-finished-title">COMPLETED</span>
+              <span class="queue-finished-count">{dismissedResults.length}</span>
+            </div>
+            {#each dismissedResults as d (d.id)}
+              {@const secondsLeft = Math.max(0, Math.ceil((d.expiresAt - clockNow) / 1000))}
+              {@const mm = String(Math.floor(secondsLeft / 60))}
+              {@const ss = String(secondsLeft % 60).padStart(2, '0')}
+              <button type="button" class="queue-finished-item" onclick={() => onReopenDismissed?.(d.id)}>
+                <div class="queue-main-row">
+                  {#if d.imageUrl}
+                    <img src={d.imageUrl} alt="" class="queue-finished-thumb" draggable="false" />
+                  {:else}
+                    <div class="queue-finished-placeholder"></div>
+                  {/if}
+                  <span class="queue-finished-badge">DONE</span>
+                  <span class="queue-finished-prompt">
+                    <span class="queue-finished-prompt-inner">{d.promptSnippet || 'Result'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{d.promptSnippet || 'Result'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                  </span>
+                  <span class="queue-finished-timer">{mm}:{ss}</span>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -806,7 +883,7 @@
   }
 
   .card.card-drag {
-    border-color: rgba(123, 156, 191, 0.35);
+    border-color: rgba(82, 116, 144, 0.35);
   }
 
   /* ── Form ──────────────────────────────────────────────────────────── */
@@ -872,14 +949,14 @@
     flex-shrink: 0;
   }
 
-  .btn-admin:hover { background-color: rgba(9, 9, 11, 0.5); color: #7b9cbf; }
+  .btn-admin:hover { background-color: rgba(9, 9, 11, 0.5); color: #527490; }
   .btn-admin:active { transform: scale(0.88); filter: brightness(0.85); }
 
   .form-title {
     font-family: 'Syne', sans-serif;
     font-size: 1.6rem;
     font-weight: 800;
-    color: #f4f4f5;
+    color: #d4d4d8;
     letter-spacing: -0.02em;
     line-height: 1;
   }
@@ -888,7 +965,7 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.62rem;
     letter-spacing: 0.2em;
-    color: #7b9cbf;
+    color: #527490;
   }
 
   /* ── Field label ───────────────────────────────────────────────────── */
@@ -948,9 +1025,9 @@
   }
 
   .img-label:hover .drop-zone {
-    border-color: rgba(123, 156, 191, 0.4);
-    color: #7b9cbf;
-    background-color: rgba(123, 156, 191, 0.06);
+    border-color: rgba(82, 116, 144, 0.4);
+    color: #527490;
+    background-color: rgba(82, 116, 144, 0.06);
   }
 
   .img-preview-wrap {
@@ -978,7 +1055,7 @@
     align-items: center;
     justify-content: center;
     background: rgba(9, 9, 11, 0.65);
-    color: #7b9cbf;
+    color: #527490;
     font-family: 'DM Mono', monospace;
     font-size: 0.75rem;
     letter-spacing: 0.18em;
@@ -996,15 +1073,15 @@
   }
 
   .drag-target .drop-zone {
-    border-color: rgba(123, 156, 191, 0.6);
-    color: #7b9cbf;
-    background: rgba(123, 156, 191, 0.06);
-    box-shadow: 0 0 0 3px rgba(123, 156, 191, 0.12);
+    border-color: rgba(82, 116, 144, 0.6);
+    color: #527490;
+    background: rgba(82, 116, 144, 0.06);
+    box-shadow: 0 0 0 3px rgba(82, 116, 144, 0.12);
   }
 
   .drag-target .img-preview {
-    border-color: rgba(123, 156, 191, 0.5);
-    box-shadow: 0 0 0 3px rgba(123, 156, 191, 0.12);
+    border-color: rgba(82, 116, 144, 0.5);
+    box-shadow: 0 0 0 3px rgba(82, 116, 144, 0.12);
   }
 
   .hidden-input { display: none; }
@@ -1032,7 +1109,7 @@
     transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.12s ease;
   }
 
-  .btn-swap:hover { color: #7b9cbf; border-color: rgba(123, 156, 191, 0.35); background: rgba(123, 156, 191, 0.05); }
+  .btn-swap:hover { color: #527490; border-color: rgba(82, 116, 144, 0.35); background: rgba(82, 116, 144, 0.05); }
   .btn-swap:active { transform: scale(0.93); }
 
   .btn-clear {
@@ -1099,7 +1176,7 @@
   input::placeholder { color: #6c7585; }
 
   textarea:focus,
-  input[type='number']:focus { border-color: rgba(123, 156, 191, 0.4); }
+  input[type='number']:focus { border-color: rgba(82, 116, 144, 0.4); }
 
   textarea:disabled,
   input:disabled { opacity: 0.45; }
@@ -1195,7 +1272,7 @@
 
   .select-option:hover { background: rgba(255, 255, 255, 0.05); color: #e4e4e7; }
   .select-option:active { transform: scale(0.98); }
-  .select-option.active { color: #7b9cbf; }
+  .select-option.active { color: #527490; }
 
   /* ── Range slider ────────────────────────────────────────────────────── */
   .param-field-slider {
@@ -1236,17 +1313,17 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #7b9cbf;
+    background: #527490;
     border: 2px solid rgba(9, 9, 11, 0.8);
     cursor: pointer;
     transition: background 0.2s, transform 0.12s;
   }
-  .range-slider::-webkit-slider-thumb:hover { background: #a3bdd4; transform: scale(1.15); }
+  .range-slider::-webkit-slider-thumb:hover { background: #7d9db6; transform: scale(1.15); }
   .range-slider::-moz-range-thumb {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #7b9cbf;
+    background: #527490;
     border: 2px solid rgba(9, 9, 11, 0.8);
     cursor: pointer;
   }
@@ -1272,7 +1349,7 @@
     padding: 0.85rem;
     border: none;
     border-radius: 3rem;
-    background: #7b9cbf;
+    background: #527490;
     color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.75rem;
@@ -1282,61 +1359,10 @@
     transition: transform 0.12s ease, filter 0.12s ease, background 0.3s, flex 0.3s ease;
   }
 
-  .btn-generate:hover:not(:disabled) { background: #a3bdd4; }
+  .btn-generate:hover:not(:disabled) { background: #7d9db6; }
   .btn-generate:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.85); }
   .btn-generate:disabled { opacity: 0.7; cursor: not-allowed; }
-
-  @keyframes generating-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.55; }
-  }
-
-  .btn-generate.generating {
-    background: linear-gradient(
-      to right,
-      rgba(123, 156, 191, 0.45) var(--progress, 0%),
-      rgba(123, 156, 191, 0.12) var(--progress, 0%)
-    );
-    color: #7b9cbf;
-    border: 1px solid rgba(123, 156, 191, 0.25);
-    opacity: 1;
-    animation: generating-pulse 2s ease-in-out infinite;
-  }
-
-  .btn-generate.view-result {
-    background: #7b9cbf;
-    color: #09090b;
-    cursor: pointer;
-  }
-
-  .btn-generate.view-result:hover { background: #a3bdd4; }
-  .btn-generate.view-result:active { transform: scale(0.96); filter: brightness(0.85); }
-
-  .btn-generate.btn-new-job {
-    background: rgba(255, 255, 255, 0.06);
-    color: #c2ccd5;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .btn-generate.btn-new-job:hover { background: rgba(255, 255, 255, 0.11); color: #e4e4e7; }
-
-  .btn-cancel-icon {
-    width: 2.5rem;
-    height: 2.5rem;
-    flex-shrink: 0;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.05);
-    color: #a4afbb;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: transform 0.12s ease, filter 0.12s ease, background 0.2s, color 0.2s;
-  }
-
-  .btn-cancel-icon:hover { background: rgba(255, 255, 255, 0.1); color: #e4e4e7; }
-  .btn-cancel-icon:active { transform: scale(0.88); filter: brightness(0.85); }
+  .btn-generate.btn-queue-full:disabled { opacity: 0.42; }
 
   /* ── Error / Code status ─────────────────────────────────────────────── */
   .error {
@@ -1397,7 +1423,7 @@
     flex-shrink: 0;
     transition: color 0.2s;
   }
-  .config-row:hover .config-icon { color: #7b9cbf; }
+  .config-row:hover .config-icon { color: #527490; }
 
   .config-label {
     font-family: 'DM Mono', monospace;
@@ -1525,7 +1551,7 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     letter-spacing: 0.22em;
-    color: #7b9cbf;
+    color: #527490;
   }
 
   .cfg-close {
@@ -1582,7 +1608,7 @@
     padding: 0.85rem;
     border: none;
     border-radius: 3rem;
-    background: #7b9cbf;
+    background: #527490;
     color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.75rem;
@@ -1591,7 +1617,7 @@
     cursor: pointer;
     transition: transform 0.12s ease, filter 0.12s ease, background 0.2s;
   }
-  .cfg-done:hover { background: #a3bdd4; }
+  .cfg-done:hover { background: #7d9db6; }
   .cfg-done:active { transform: scale(0.97); filter: brightness(0.85); }
 
   /* ── Mobile layout ───────────────────────────────────────────────────── */
@@ -1660,6 +1686,383 @@
     color: #525a66;
     font-size: 0.76rem;
     padding-left: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  /* ── Queue panel ─────────────────────────────────────────────────────── */
+  .queue-panel {
+    margin-top: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    animation: constructIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .queue-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.875rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .queue-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    color: #8b96a6;
+    font-weight: 500;
+  }
+
+  .queue-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .queue-mine-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: #527490;
+    font-weight: 500;
+    transition: color 0.2s;
+  }
+
+  .queue-mine-count.queue-mine-full {
+    color: #c47070;
+  }
+
+  .queue-total-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    color: #525a66;
+    letter-spacing: 0.05em;
+  }
+
+  .queue-list {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(6 * 3.4rem);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.08) transparent;
+  }
+
+  .queue-list::-webkit-scrollbar { width: 3px; }
+  .queue-list::-webkit-scrollbar-track { background: transparent; }
+  .queue-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+  .queue-item {
+    display: flex;
+    flex-direction: column;
+    padding: 0.55rem 0.875rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.2s;
+  }
+
+  .queue-item:last-child {
+    border-bottom: none;
+  }
+
+  .queue-main-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .queue-item.queue-mine {
+    background: rgba(82, 116, 144, 0.08);
+    border-left: 2px solid rgba(82, 116, 144, 0.5);
+    padding-left: calc(0.875rem - 2px);
+  }
+
+  .queue-item.queue-active.queue-mine {
+    background: rgba(82, 116, 144, 0.13);
+  }
+
+  .queue-item.queue-theirs {
+    opacity: 0.5;
+  }
+
+  .queue-mine-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: #527490;
+    background: rgba(82, 116, 144, 0.15);
+    border: 1px solid rgba(82, 116, 144, 0.35);
+    border-radius: 0.25rem;
+    padding: 0.08rem 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .queue-theirs-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: #525a66;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 0.25rem;
+    padding: 0.08rem 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .queue-pos {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: #6c7585;
+    min-width: 1.5rem;
+    flex-shrink: 0;
+  }
+
+  .queue-status {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: #8b96a6;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .queue-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .queue-dot.waiting {
+    background: #525a66;
+  }
+
+  @keyframes queue-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .queue-progress-inline {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: #527490;
+    letter-spacing: 0.06em;
+    background: linear-gradient(
+      to right,
+      rgba(82, 116, 144, 0.2) var(--progress, 0%),
+      transparent var(--progress, 0%)
+    );
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.25rem;
+  }
+
+
+  @keyframes queue-sweep {
+    0%   { background-position: 200% center; }
+    100% { background-position: -200% center; }
+  }
+
+  .queue-progress-indeterminate {
+    background: linear-gradient(
+      90deg,
+      transparent 25%,
+      rgba(82, 116, 144, 0.28) 50%,
+      transparent 75%
+    );
+    background-size: 200% 100%;
+    animation: queue-sweep 1.8s linear infinite;
+    color: #527490;
+    opacity: 0.7;
+  }
+
+  .queue-thumbs {
+    display: flex;
+    gap: 0.2rem;
+    flex-shrink: 0;
+  }
+
+  .queue-thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 0.25rem;
+    border: 1px solid rgba(82, 116, 144, 0.22);
+    flex-shrink: 0;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .queue-eta {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    color: #525a66;
+    flex-shrink: 0;
+    min-width: 2rem;
+    text-align: right;
+  }
+
+  .queue-cancel {
+    width: 1.4rem;
+    height: 1.4rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(196, 112, 112, 0.45);
+    background: rgba(196, 112, 112, 0.1);
+    color: #c47070;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  }
+
+  .queue-cancel:hover { background: rgba(196, 112, 112, 0.25); border-color: rgba(196, 112, 112, 0.7); }
+  .queue-cancel:active { transform: scale(0.85); }
+
+  .queue-prompt-row {
+    margin-top: 0.28rem;
+    overflow: hidden;
+  }
+
+  .queue-prompt-scroll {
+    display: block;
+    overflow: hidden;
+    mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  }
+
+  .queue-prompt-inner {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+    color: #527490;
+    opacity: 0.75;
+    animation: queue-marquee 14s linear infinite;
+  }
+
+  @keyframes queue-marquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  /* ── Completed jobs section ─────────────────────────────────────────── */
+  .queue-finished-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .queue-finished-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.875rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .queue-finished-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.18em;
+    color: #525a66;
+    font-weight: 500;
+  }
+
+  .queue-finished-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: #525a66;
+    letter-spacing: 0.05em;
+  }
+
+  .queue-finished-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 0.45rem 0.875rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition: background 0.15s;
+  }
+
+  .queue-finished-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .queue-finished-item:last-child {
+    border-bottom: none;
+  }
+
+  .queue-finished-item:active {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .queue-finished-thumb {
+    width: 26px;
+    height: 26px;
+    object-fit: cover;
+    border-radius: 0.2rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .queue-finished-placeholder {
+    width: 26px;
+    height: 26px;
+    border-radius: 0.2rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
+  }
+
+  .queue-finished-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.5rem;
+    letter-spacing: 0.15em;
+    color: #527490;
+    background: rgba(82, 116, 144, 0.1);
+    border: 1px solid rgba(82, 116, 144, 0.25);
+    border-radius: 0.2rem;
+    padding: 0.05rem 0.28rem;
+    flex-shrink: 0;
+  }
+
+  .queue-finished-prompt {
+    display: block;
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  }
+
+  .queue-finished-prompt-inner {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    color: #6c7585;
+    animation: queue-marquee 18s linear infinite;
+  }
+
+  .queue-finished-timer {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: #c4996a;
+    letter-spacing: 0.08em;
     flex-shrink: 0;
   }
 </style>

@@ -3,7 +3,7 @@
   import { encryptBlob, generateThumbnail, bufToB64 } from '../lib/vault-crypto.js';
   import { saveResult } from '../lib/api.js';
 
-  let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null } = $props();
+  let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null } = $props();
 
   let imageUrl = $state(null);
   let imageBytes = $state(null); // raw PNG bytes, kept alongside imageUrl for save
@@ -16,6 +16,7 @@
 
   const DECRYPT_TIMEOUT_MS = 15_000;
   let _decryptInFlight = false; // re-entry guard
+  let _decryptStarted = false;  // one-shot: effect may only initiate decrypt once
 
   // Auto-trigger save once masterKey arrives after a pending save request
   $effect(() => {
@@ -26,7 +27,8 @@
   });
 
   $effect(() => {
-    if (!result || !aesKey) return;
+    if (!result || !aesKey || _decryptStarted) return;
+    _decryptStarted = true;
     decrypt();
   });
 
@@ -47,6 +49,8 @@
       imageBytes = plaintext;
       const blob = new Blob([plaintext], { type: 'image/png' });
       imageUrl = URL.createObjectURL(blob);
+      // Notify parent so dismissed cards can show the image
+      if (onImageReady) onImageReady(imageUrl);
     } catch (err) {
       decryptError = `Decryption failed: ${err.message}`;
     } finally {
@@ -98,7 +102,15 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions a11y_interactive_supports_focus -->
-<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+<div
+  class="backdrop"
+  class:ghost={isGhost}
+  style={isGhost ? `--stack-offset: ${stackOffset}` : ''}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+  onclick={(e) => { if (!isGhost && e.target === e.currentTarget) onClose(); }}
+>
   <div class="modal">
     <button class="close-btn" onclick={onClose} aria-label="Close">✕</button>
 
@@ -114,15 +126,26 @@
       <div class="actions">
         <a href={imageUrl} download="result.png" class="btn btn-accent">Download</a>
         {#if userType === 'google'}
-          <button onclick={handleSave} class="btn btn-ghost" class:save-pending={savePending} disabled={saving || saved}>
-            {#if saved}✓ Saved
-            {:else if saving}Saving…
-            {:else if savePending}Unlock vault to save
-            {:else}Save
-            {/if}
-          </button>
+          {#if saved}
+            <!-- Save chosen: Discard is gone, show confirmation -->
+            <button class="btn btn-ghost" disabled>✓ Saved</button>
+          {:else if saving || savePending}
+            <!-- Save in progress / waiting for vault: hide Discard so user can't do both -->
+            <button class="btn btn-ghost save-pending" disabled>
+              {saving ? 'Saving…' : 'Unlock vault to save…'}
+            </button>
+          {:else}
+            <!-- Idle: show both options — user must pick one -->
+            <button onclick={handleSave} class="btn btn-ghost">Save</button>
+            <button onclick={onDone} class="btn btn-ghost btn-danger">Discard</button>
+          {/if}
+        {:else}
+          <!-- Code users have no vault: only Discard -->
+          <button onclick={onDone} class="btn btn-ghost btn-danger">Discard</button>
         {/if}
-        <button onclick={onDone} class="btn btn-ghost">New Job</button>
+        <!-- After a successful save the result is in the vault — close permanently
+             (onDone) so it doesn't linger in the 2-min dismissed shelf. -->
+        <button onclick={saved ? onDone : onClose} class="btn btn-ghost btn-close-action">Close</button>
       </div>
       {#if saveError}
         <p class="save-error">{saveError}</p>
@@ -143,6 +166,30 @@
     justify-content: center;
     padding: 0.75rem 0.75rem 1.25rem;
     animation: fade-in 0.18s ease;
+  }
+
+  /* Ghost ("behind" stack entry): no dimming, no pointer events, peeking visual */
+  .backdrop.ghost {
+    background: transparent;
+    backdrop-filter: none;
+    pointer-events: none;
+    z-index: calc(98 - var(--stack-offset, 1) * 2);
+    animation: none;
+  }
+
+  .backdrop.ghost .modal {
+    transform:
+      translateY(calc(var(--stack-offset, 1) * -10px))
+      scale(calc(1 - var(--stack-offset, 1) * 0.028));
+    opacity: calc(1 - var(--stack-offset, 1) * 0.18);
+    filter: blur(calc(var(--stack-offset, 1) * 0.6px));
+    animation: none;
+  }
+
+  .backdrop.ghost .close-btn,
+  .backdrop.ghost .actions,
+  .backdrop.ghost .modal-label {
+    opacity: 0;
   }
 
   @media (min-width: 480px) {
@@ -222,13 +269,13 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     letter-spacing: 0.2em;
-    color: #7b9cbf;
+    color: #527490;
     font-weight: 400;
   }
 
   .status {
     font-family: 'DM Mono', monospace;
-    color: #7b9cbf;
+    color: #527490;
     font-size: 0.8rem;
     margin: 0;
     letter-spacing: 0.08em;
@@ -257,6 +304,11 @@
     flex-shrink: 0;
   }
 
+  .btn-close-action {
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+
   .btn {
     flex: 1;
     padding: 0.75rem;
@@ -280,12 +332,12 @@
   }
 
   .btn-accent {
-    background: #7b9cbf;
+    background: #527490;
     color: #09090b;
   }
 
   .btn-accent:hover {
-    background: #a3bdd4;
+    background: #7d9db6;
   }
 
   .btn-ghost {
@@ -299,9 +351,20 @@
     color: #e4e4e7;
   }
 
+  .btn-ghost.btn-danger {
+    color: #c47070;
+    border-color: rgba(196, 112, 112, 0.4);
+  }
+
+  .btn-ghost.btn-danger:hover {
+    background: rgba(196, 112, 112, 0.12);
+    color: #e07070;
+    border-color: rgba(196, 112, 112, 0.65);
+  }
+
   .btn-ghost.save-pending {
-    border-color: rgba(123, 156, 191, 0.3);
-    color: #7b9cbf;
+    border-color: rgba(82, 116, 144, 0.3);
+    color: #527490;
     opacity: 0.75;
   }
 

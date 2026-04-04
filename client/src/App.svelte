@@ -21,17 +21,24 @@
   let user = $state(null);       // { name, email, status, isAdmin, type }
   let ws = $state(null);
   let view = $state('login');        // 'login' | 'submit'
-  let currentAesKey = $state(null);
-  let currentJobId = $state(null);
-  let currentResult = $state(null);
+  // Result stack — index 0 is frontmost (currently shown), others peek behind it
+  let resultStack = $state([]); // [{ id, result, aesKey, promptSnippet, imageUrl }]
+  // Dismissed results waiting 2 min before auto-expiring
+  let dismissedResults = $state([]); // [{ id, result, aesKey, promptSnippet, imageUrl, expiresAt, timerId }]
+  // Ticker for countdown displays
+  let clockNow = $state(Date.now());
   let wsError = $state('');
   let codeUsesRemaining = $state(null); // null = not a code user or unlimited; 0 = depleted
   let userUsesRemaining = $state(null); // null = unlimited; number = remaining uses for Google user
-  let showModal = $state(false);
   let showAdmin = $state(false);
   let showGallery = $state(false);
   let showTerms = $state(false);
   let tosAccepted = $state(false);
+
+  // Queue state
+  let queueState = $state({ queue: [], activeJobId: null, avgDuration: 60 });
+  /** Map<jobId, { aesKey: CryptoKey, promptSnippet: string }> */
+  let pendingJobs = $state(new Map());
 
   // Vault state
   let vaultInfo = $state(null);       // null | { configured, hasBio, hasPw, ... }
@@ -50,6 +57,12 @@
 
   // Derived
   let isGoogleUser = $derived(user?.type === 'google' || (user && !user.type));
+
+  // Tick clockNow every second for dismissed-card countdown
+  $effect(() => {
+    const id = setInterval(() => { clockNow = Date.now(); }, 1000);
+    return () => clearInterval(id);
+  });
 
   // ── Login ──────────────────────────────────────────────────────────────────
   function handleLogin(newToken, newUser) {
@@ -70,31 +83,45 @@
       ws = createPhoneWS(token);
 
     ws.on('queued', ({ jobId }) => {
-      currentJobId = jobId;
       wsError = ''; // server accepted the job — dismiss any stale error banner
       console.log(`[app] Job queued: ${jobId}`);
     });
 
     ws.on('result', (msg) => {
-      if (!currentJobId || msg.jobId !== currentJobId) {
+      const entry = pendingJobs.get(msg.jobId);
+      if (!entry) {
         console.log(`[app] Ignoring stale result for job ${msg.jobId}`);
         return;
-      }      if (!currentAesKey) {
-        console.log(`[app] Ignoring result — no AES key available (job ${msg.jobId})`);
-        return;
-      }      wsError = ''; // result arrived — any “PC not connected” banner is stale
-      currentResult = msg;
-      showModal = true;
+      }
+      wsError = '';
+      // Append to END of stack (opens behind the currently-viewed result)
+      resultStack = [...resultStack, {
+        id: msg.jobId,
+        result: msg,
+        aesKey: entry.aesKey,
+        promptSnippet: (entry.promptText ?? '').slice(0, 80),
+        imageUrl: null,
+      }];
+      // Remove from pending
+      pendingJobs.delete(msg.jobId);
+      pendingJobs = new Map(pendingJobs); // trigger reactivity
     });
 
-    ws.on('error', ({ message }) => {
+    ws.on('error', ({ message, jobId }) => {
       // Map internal error keys to user-friendly messages
       if (message === 'no_uses_remaining') {
         wsError = 'No uses remaining — contact an admin to get more.';
       } else if (message === 'tos_not_accepted') {
         showTerms = true;
+      } else if (message === 'queue_full') {
+        wsError = 'Queue is full (max 3 jobs) — wait for one to finish.';
       } else {
         wsError = message ?? 'Unknown error';
+      }
+      // Remove from pending if we have a jobId for it
+      if (jobId && pendingJobs.has(jobId)) {
+        pendingJobs.delete(jobId);
+        pendingJobs = new Map(pendingJobs);
       }
     });
 
@@ -108,6 +135,10 @@
 
     ws.on('open', () => {
       wsError = '';
+    });
+
+    ws.on('queue_update', (msg) => {
+      queueState = { queue: msg.queue, activeJobId: msg.activeJobId, avgDuration: msg.avgDuration };
     });
 
     ws.on('code_refreshed', () => {
@@ -135,11 +166,13 @@
       ws = null;
       token = null;
       user = null;
-      currentAesKey = null;
-      currentJobId = null;
-      currentResult = null;
+      // Cancel all dismissed timers
+      dismissedResults.forEach(d => clearTimeout(d.timerId));
+      resultStack = [];
+      dismissedResults = [];
+      pendingJobs = new Map();
+      queueState = { queue: [], activeJobId: null, avgDuration: 60 };
       wsError = '';
-      showModal = false;
       showAdmin = false;
       showGallery = false;
       showTerms = false;
@@ -226,31 +259,54 @@
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  function handleJobSubmitted({ aesKey }) {
-    currentAesKey = aesKey;
+  function handleJobSubmitted({ aesKey, jobId, promptText, preview1, preview2 }) {
+    pendingJobs.set(jobId, { aesKey, promptText, preview1, preview2 });
+    pendingJobs = new Map(pendingJobs); // trigger reactivity
   }
 
-  function handleJobCancelled() {
-    currentJobId = null;
-    currentAesKey = null;
+  function handleJobCancelled({ jobId }) {
+    if (jobId && pendingJobs.has(jobId)) {
+      pendingJobs.delete(jobId);
+      pendingJobs = new Map(pendingJobs);
+    }
   }
 
-  // ── Modal close (keeps result for Preview button) ──────────────────────────
+  // ── Modal close: dismiss front result to 2-min recovery shelf ────────────────────
   function handleClose() {
-    showModal = false;
+    if (resultStack.length === 0) return;
+    const item = resultStack[0];
+    resultStack = resultStack.slice(1);
+    // Move to dismissed with 2-min auto-expire
+    const expiresAt = Date.now() + 120_000;
+    const timerId = setTimeout(() => {
+      dismissedResults = dismissedResults.filter(d => d.id !== item.id);
+    }, 120_000);
+    dismissedResults = [...dismissedResults, { ...item, expiresAt, timerId }];
   }
 
-  // ── New Job (clears result entirely) ──────────────────────────────────────
+  // ── New Job: discard front result cleanly, advance seed ──────────────────────
   function handleDone() {
     if (seedMode === 'randomize') seed = randomSeed();
     else if (seedMode === 'increment') seed = seed + 1;
     else if (seedMode === 'decrement') seed = seed - 1;
-
-    currentResult = null;
-    currentAesKey = null;
-    currentJobId = null;
+    resultStack = resultStack.slice(1);
     wsError = '';
-    showModal = false;
+  }
+
+  // Store decrypted imageUrl so dismissed cards can display the image
+  function storeImageUrl(id, url) {
+    resultStack = resultStack.map(item => item.id === id ? { ...item, imageUrl: url } : item);
+    dismissedResults = dismissedResults.map(item => item.id === id ? { ...item, imageUrl: url } : item);
+  }
+
+  // Re-open a dismissed result: cancel its expiry and bring it to the front
+  function reopenDismissed(id) {
+    const item = dismissedResults.find(d => d.id === id);
+    if (!item) return;
+    clearTimeout(item.timerId);
+    dismissedResults = dismissedResults.filter(d => d.id !== id);
+    const { expiresAt, timerId, ...entry } = item;
+    resultStack = [entry, ...resultStack];
   }
 
   onDestroy(() => ws?.close());
@@ -269,8 +325,6 @@
       onJobSubmitted={handleJobSubmitted}
       onCancel={handleJobCancelled}
       bind:seed bind:seedMode
-      previewResult={currentResult}
-      onPreview={() => showModal = true}
       onNewJob={handleDone}
       isAdmin={user?.isAdmin}
       onOpenAdmin={() => showAdmin = true}
@@ -280,20 +334,33 @@
       onOpenVaultSettings={handleOpenVaultSettings}
       {codeUsesRemaining}
       {userUsesRemaining}
+      {queueState}
+      {pendingJobs}
+      {dismissedResults}
+      {clockNow}
+      onReopenDismissed={reopenDismissed}
     />
   {/if}
 
-  {#if showModal && currentResult}
-    <Result
-      result={currentResult}
-      aesKey={currentAesKey}
-      onDone={handleDone}
-      onClose={handleClose}
-      {token}
-      {masterKey}
-      userType={user?.type ?? 'google'}
-      onRequestVaultUnlock={requestVaultUnlock}
-    />
+  {#if resultStack.length > 0}
+    <!-- Render back-to-front: last in array = deepest, index 0 = topmost.
+         We iterate reversed so index 0 is rendered last (highest DOM stacking order). -->
+    {#each [...resultStack].reverse() as item, revI (item.id)}
+      {@const forwardI = resultStack.length - 1 - revI}
+      <Result
+        result={item.result}
+        aesKey={item.aesKey}
+        onDone={handleDone}
+        onClose={handleClose}
+        onImageReady={(url) => storeImageUrl(item.id, url)}
+        isGhost={forwardI > 0}
+        stackOffset={forwardI}
+        {token}
+        {masterKey}
+        userType={user?.type ?? 'google'}
+        onRequestVaultUnlock={requestVaultUnlock}
+      />
+    {/each}
   {/if}
 
   {#if showAdmin && user?.isAdmin}
@@ -386,6 +453,7 @@
     padding: 0.5rem 1rem;
     text-align: center;
   }
+
 
 
 </style>

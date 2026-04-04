@@ -2,7 +2,8 @@
  * ws.js — WebSocket client for phone-to-server communication.
  *
  * Provides a simple event-emitter-style interface so Svelte components
- * can subscribe to: 'queued', 'result', 'error', 'no_pc', 'open', 'close'.
+ * can subscribe to: 'queued', 'result', 'error', 'no_pc', 'open', 'close',
+ * 'queue_update', 'progress'.
  *
  * Usage:
  *   import { createPhoneWS } from './ws.js';

@@ -336,7 +336,7 @@
   }
   .title {
     font-family: 'DM Mono', monospace;
-    font-size: 0.75rem; letter-spacing: 0.22em; color: #7b9cbf;
+    font-size: 0.75rem; letter-spacing: 0.22em; color: #527490;
   }
   .close-btn {
     width: 2rem; height: 2rem; border-radius: 50%;
@@ -394,12 +394,12 @@
 
   .btn-primary {
     padding: 0.8rem; border: none; border-radius: 3rem;
-    background: #7b9cbf; color: #09090b;
+    background: #527490; color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem; font-weight: 500; letter-spacing: 0.14em;
     cursor: pointer; transition: transform 0.12s, filter 0.12s, background 0.2s;
   }
-  .btn-primary:hover:not(:disabled) { background: #a3bdd4; }
+  .btn-primary:hover:not(:disabled) { background: #7d9db6; }
   .btn-primary:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.85); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -435,7 +435,7 @@
     outline: none; transition: border-color 0.2s; resize: none;
   }
   .field input::placeholder, .field textarea::placeholder { color: #6c7585; }
-  .field input:focus, .field textarea:focus { border-color: rgba(123, 156, 191, 0.4); }
+  .field input:focus, .field textarea:focus { border-color: rgba(82, 116, 144, 0.4); }
 
   .field-label {
     font-family: 'DM Mono', monospace;
@@ -463,8 +463,8 @@
     color: #6c7585; font-family: 'DM Mono', monospace; font-size: 0.78rem;
     cursor: pointer; transition: border-color 0.2s, color 0.2s;
   }
-  .file-upload:hover { border-color: rgba(123, 156, 191, 0.3); color: #8b96a6; }
-  .file-upload.has-file { color: #7b9cbf; border-color: rgba(123, 156, 191, 0.3); }
+  .file-upload:hover { border-color: rgba(82, 116, 144, 0.3); color: #8b96a6; }
+  .file-upload.has-file { color: #527490; border-color: rgba(82, 116, 144, 0.3); }
 
   .reset-warning {
     display: flex; flex-direction: column; align-items: center; gap: 0.5rem;

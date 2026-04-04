@@ -362,7 +362,7 @@
               <div class="code-actions">
                 <button class="btn-icon" onclick={() => handleCopy(code.code, code.id)} aria-label="Copy code">
                   {#if copyFeedback === code.id}
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7.5l2.5 2.5L11 4" stroke="#7b9cbf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7.5l2.5 2.5L11 4" stroke="#527490" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   {:else}
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 4.5V3a1.5 1.5 0 00-1.5-1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h1.5" stroke="currentColor" stroke-width="1.2"/></svg>
                   {/if}
@@ -656,13 +656,13 @@
   }
 
   input[type='number']::placeholder { color: #6c7585; }
-  input[type='number']:focus { border-color: rgba(123, 156, 191, 0.4); }
+  input[type='number']:focus { border-color: rgba(82, 116, 144, 0.4); }
 
   .btn-gen {
     padding: 0.8rem;
     border: none;
     border-radius: 3rem;
-    background: #7b9cbf;
+    background: #527490;
     color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem;
@@ -671,7 +671,7 @@
     cursor: pointer;
     transition: transform 0.12s ease, filter 0.12s ease, background 0.2s;
   }
-  .btn-gen:hover:not(:disabled) { background: #a3bdd4; }
+  .btn-gen:hover:not(:disabled) { background: #7d9db6; }
   .btn-gen:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.85); }
   .btn-gen:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -763,8 +763,8 @@
   .btn-icon:active { transform: scale(0.88); }
 
   .btn-delete:hover { color: #c47070; }
-  .btn-edit:hover { color: #7b9cbf; }
-  .btn-edit-active { color: #7b9cbf; background: rgba(123, 156, 191, 0.1); }
+  .btn-edit:hover { color: #527490; }
+  .btn-edit-active { color: #527490; background: rgba(82, 116, 144, 0.1); }
 
   /* Tabs */
   .tab-bar {
@@ -785,8 +785,8 @@
   }
   .tab-btn:hover { color: #a4afbb; }
   .tab-active {
-    background: rgba(123, 156, 191, 0.12);
-    color: #7b9cbf;
+    background: rgba(82, 116, 144, 0.12);
+    color: #527490;
   }
 
   /* User filter */
@@ -809,9 +809,9 @@
   }
   .filter-btn:hover { color: #a4afbb; border-color: rgba(255, 255, 255, 0.12); }
   .filter-active {
-    background: rgba(123, 156, 191, 0.1);
-    color: #7b9cbf;
-    border-color: rgba(123, 156, 191, 0.2);
+    background: rgba(82, 116, 144, 0.1);
+    color: #527490;
+    border-color: rgba(82, 116, 144, 0.2);
   }
 
   /* User list */
@@ -863,8 +863,8 @@
   .role-badge {
     padding: 0.1rem 0.4rem;
     border-radius: 3rem;
-    background: rgba(123, 156, 191, 0.15);
-    color: #7b9cbf;
+    background: rgba(82, 116, 144, 0.15);
+    color: #527490;
     font-size: 0.62rem;
     letter-spacing: 0.1em;
   }
@@ -902,7 +902,7 @@
   }
 
   .user-item-editing {
-    border-color: rgba(123, 156, 191, 0.25);
+    border-color: rgba(82, 116, 144, 0.25);
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
   }
@@ -924,8 +924,8 @@
 
   .uses-edit-form {
     padding: 0.75rem;
-    background: rgba(123, 156, 191, 0.06);
-    border: 1px solid rgba(123, 156, 191, 0.15);
+    background: rgba(82, 116, 144, 0.06);
+    border: 1px solid rgba(82, 116, 144, 0.15);
     border-top: none;
     border-bottom-left-radius: 0.75rem;
     border-bottom-right-radius: 0.75rem;
@@ -942,12 +942,12 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
     letter-spacing: 0.14em;
-    color: #7b9cbf;
+    color: #527490;
     user-select: none;
   }
 
   .uses-unlimited-label input[type='checkbox'] {
-    accent-color: #7b9cbf;
+    accent-color: #527490;
     width: 0.9rem;
     height: 0.9rem;
     cursor: pointer;
@@ -979,7 +979,7 @@
     transition: background 0.18s, color 0.18s;
   }
   .type-opt:hover { color: #a4afbb; }
-  .type-opt-active { background: rgba(123, 156, 191, 0.15); color: #7b9cbf; }
+  .type-opt-active { background: rgba(82, 116, 144, 0.15); color: #527490; }
 
   /* Code type badge in list */
   .type-badge {
@@ -989,12 +989,12 @@
     letter-spacing: 0.1em;
     font-family: 'DM Mono', monospace;
   }
-  .type-reg { background: rgba(123, 156, 191, 0.15); color: #7b9cbf; }
+  .type-reg { background: rgba(82, 116, 144, 0.15); color: #527490; }
   .type-access { background: rgba(160, 140, 200, 0.15); color: #a08cc8; }
 
   /* Inline code edit form */
   .code-editing {
-    border-color: rgba(123, 156, 191, 0.25);
+    border-color: rgba(82, 116, 144, 0.25);
   }
 
   .edit-form {
@@ -1030,8 +1030,8 @@
     padding: 0.5rem 0;
     border: none;
     border-radius: 0.6rem;
-    background: rgba(123, 156, 191, 0.18);
-    color: #7b9cbf;
+    background: rgba(82, 116, 144, 0.18);
+    color: #527490;
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     letter-spacing: 0.14em;

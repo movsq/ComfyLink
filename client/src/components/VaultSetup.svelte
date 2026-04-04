@@ -414,7 +414,7 @@
   }
   .title {
     font-family: 'DM Mono', monospace;
-    font-size: 0.65rem; letter-spacing: 0.22em; color: #7b9cbf;
+    font-size: 0.65rem; letter-spacing: 0.22em; color: #527490;
   }
   .close-btn {
     width: 2rem; height: 2rem; border-radius: 50%;
@@ -447,12 +447,12 @@
   }
   .method-btn:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(123, 156, 191, 0.3);
+    border-color: rgba(82, 116, 144, 0.3);
   }
   .method-btn:active:not(:disabled) { transform: scale(0.97); }
   .method-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .method-btn svg { color: #7b9cbf; flex-shrink: 0; }
+  .method-btn svg { color: #527490; flex-shrink: 0; }
   .method-label {
     font-family: 'Syne', sans-serif; font-size: 0.9rem; font-weight: 600;
   }
@@ -481,17 +481,17 @@
     outline: none; transition: border-color 0.2s;
   }
   .field input::placeholder { color: #6c7585; }
-  .field input:focus { border-color: rgba(123, 156, 191, 0.4); }
+  .field input:focus { border-color: rgba(82, 116, 144, 0.4); }
 
   .btn-primary {
     padding: 0.8rem; border: none; border-radius: 3rem;
-    background: #7b9cbf; color: #09090b;
+    background: #527490; color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem; font-weight: 500; letter-spacing: 0.14em;
     cursor: pointer;
     transition: transform 0.12s, filter 0.12s, background 0.2s;
   }
-  .btn-primary:hover:not(:disabled) { background: #a3bdd4; }
+  .btn-primary:hover:not(:disabled) { background: #7d9db6; }
   .btn-primary:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.85); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -540,12 +540,12 @@
     transition: border-color 0.2s, background 0.2s;
   }
   .checkbox-row input[type='checkbox']:checked {
-    border-color: #7b9cbf; background: rgba(123, 156, 191, 0.2);
+    border-color: #527490; background: rgba(82, 116, 144, 0.2);
   }
   .checkbox-row input[type='checkbox']:checked::after {
     content: ''; position: absolute; top: 2px; left: 5px;
     width: 4px; height: 8px;
-    border: solid #7b9cbf; border-width: 0 1.5px 1.5px 0;
+    border: solid #527490; border-width: 0 1.5px 1.5px 0;
     transform: rotate(45deg);
   }
   .checkbox-label {

@@ -240,8 +240,8 @@
 
       <div class="pending-msg">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke="#7b9cbf" stroke-width="1.5"/>
-          <path d="M12 7v5l3 3" stroke="#7b9cbf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="12" cy="12" r="10" stroke="#527490" stroke-width="1.5"/>
+          <path d="M12 7v5l3 3" stroke="#527490" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <p>Your account is pending admin approval. You'll be able to sign in once approved.</p>
       </div>
@@ -301,7 +301,7 @@
     font-family: 'Syne', sans-serif;
     font-size: 1.9rem;
     font-weight: 800;
-    color: #f4f4f5;
+    color: #d4d4d8;
     letter-spacing: -0.03em;
     line-height: 1;
   }
@@ -310,7 +310,7 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
     letter-spacing: 0.18em;
-    color: #7b9cbf;
+    color: #527490;
     font-weight: 400;
   }
 
@@ -408,8 +408,8 @@
   }
 
   .checkbox-row input[type='checkbox']:checked {
-    border-color: #7b9cbf;
-    background: rgba(123, 156, 191, 0.2);
+    border-color: #527490;
+    background: rgba(82, 116, 144, 0.2);
   }
 
   .checkbox-row input[type='checkbox']:checked::after {
@@ -419,7 +419,7 @@
     left: 5px;
     width: 4px;
     height: 8px;
-    border: solid #7b9cbf;
+    border: solid #527490;
     border-width: 0 1.5px 1.5px 0;
     transform: rotate(45deg);
   }
@@ -453,14 +453,14 @@
   }
 
   .code-input:focus {
-    border-color: rgba(123, 156, 191, 0.5);
+    border-color: rgba(82, 116, 144, 0.5);
   }
 
   button {
     padding: 0.8rem 1.5rem;
     border: none;
     border-radius: 3rem;
-    background: #7b9cbf;
+    background: #527490;
     color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem;
@@ -471,7 +471,7 @@
   }
 
   button:hover:not(:disabled) {
-    background: #a3bdd4;
+    background: #7d9db6;
   }
 
   button:active:not(:disabled) {

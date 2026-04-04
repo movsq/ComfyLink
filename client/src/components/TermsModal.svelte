@@ -309,7 +309,7 @@
   }
   .title {
     font-family: 'DM Mono', monospace;
-    font-size: 0.65rem; letter-spacing: 0.22em; color: #7b9cbf;
+    font-size: 0.65rem; letter-spacing: 0.22em; color: #527490;
   }
 
   .lang-toggle {
@@ -328,14 +328,14 @@
     transition: color 0.15s;
   }
   .lang-btn:hover { color: rgba(255,255,255,0.6); }
-  .lang-btn.active { color: #7b9cbf; }
+  .lang-btn.active { color: #527490; }
 
   .terms-scroll {
     overflow-y: auto;
     max-height: 50dvh;
     padding-right: 0.5rem;
     scrollbar-width: thin;
-    scrollbar-color: rgba(123, 156, 191, 0.25) transparent;
+    scrollbar-color: rgba(82, 116, 144, 0.25) transparent;
   }
 
   .section-heading {
@@ -367,13 +367,13 @@
 
   .btn-primary {
     padding: 0.8rem; border: none; border-radius: 3rem;
-    background: #7b9cbf; color: #09090b;
+    background: #527490; color: #09090b;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem; font-weight: 500; letter-spacing: 0.14em;
     cursor: pointer;
     transition: transform 0.12s, filter 0.12s, background 0.2s;
   }
-  .btn-primary:hover:not(:disabled) { background: #a3bdd4; }
+  .btn-primary:hover:not(:disabled) { background: #7d9db6; }
   .btn-primary:active:not(:disabled) { transform: scale(0.96); filter: brightness(0.85); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 

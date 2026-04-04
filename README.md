@@ -156,6 +156,68 @@ customisation instructions.
 
 ---
 
+## Job Queue
+
+The server maintains an in-memory FIFO queue so multiple jobs can be submitted while
+the PC processes them one at a time.
+
+### How it works
+
+1. When a user submits a job, it enters the queue as **pending**.
+2. If the PC is connected and idle, the server dispatches the next pending job immediately.
+3. When a job completes (or errors/cancels), the server automatically dispatches the next one.
+4. Every state change broadcasts a `queue_update` message to all connected phone sockets.
+
+### Limits
+
+| Rule | Value |
+|------|-------|
+| Max queued jobs per user | **3** (configurable via `MAX_QUEUE_PER_USER` in `server/src/index.js`) |
+| Queue storage | In-memory (lost on server restart) |
+
+If a user already has 3 jobs in the queue (pending or processing), further submissions
+are rejected with an `error` message containing `errorType: "queue_full"`.
+
+### Queue UI
+
+The queue panel appears below the submit form and has two zones:
+
+**Live queue (scrollable, ~6 rows):**
+- **Position** in queue (1, 2, 3, ...)
+- **Status badge** — `PROCESSING` (with progress %) or `WAITING`
+- **Estimated wait time** — calculated from a rolling average of the last 10 job durations
+- **Cancel button** — users can cancel their own pending or processing jobs
+
+**COMPLETED section (fixed, below live queue):**  
+When a result modal is closed without discarding, the finished job appears here as a static bar showing:
+- Tiny thumbnail preview (decrypted image)
+- Scrolling prompt text
+- `MM:SS` countdown timer (auto-expires after 2 minutes)
+
+Clicking a completed bar reopens the full result modal where you can **Download**, **Save** (vault), **Discard** (permanently removes), or **Close** (keeps bar in COMPLETED).
+
+The submit button always shows the current slot count: **ADD TO QUEUE (x/3)**.
+When the per-user limit is reached the button becomes disabled: **QUEUED JOBS (3/3)**.
+
+### `queue_update` message shape
+
+```json
+{
+  "type": "queue_update",
+  "queue": [
+    { "jobId": "...", "position": 1, "status": "processing", "mine": true },
+    { "jobId": "...", "position": 2, "status": "pending", "mine": false }
+  ],
+  "activeJobId": "abc123",
+  "avgDuration": 45
+}
+```
+
+Each entry's `mine` field is set per-recipient so clients know which jobs they own.
+`avgDuration` is the rolling average completion time in seconds (defaults to 60 s).
+
+---
+
 ## Authentication & Access
 
 Users authenticate with **Google OAuth** (ID token flow — no server-side redirect needed).
@@ -436,10 +498,12 @@ All messages are JSON. The `payload` field is a base64 binary blob the server ne
 |-----------|---------|
 | Phone → Server | `{ type: "submit", payload: "<b64>" }` |
 | Server → Phone | `{ type: "queued", jobId: "..." }` |
+| Server → Phone | `{ type: "queue_update", queue: [...], activeJobId, avgDuration }` — broadcast to all phones on every queue change |
 | Server → Phone | `{ type: "no_pc" }` — PC not connected |
 | Server → Phone | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` |
 | Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>" }` |
 | Server → Phone | `{ type: "error", jobId: "...", message: "..." }` |
+| Server → Phone | `{ type: "error", errorType: "queue_full" }` — user already has 3 jobs queued |
 | Phone → Server | `{ type: "cancel", jobId: "..." }` |
 | Server → Phone | `{ type: "code_status", usesRemaining: N }` — code_user sessions only |
 | Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — Google user quota changed |
