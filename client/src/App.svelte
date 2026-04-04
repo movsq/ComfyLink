@@ -336,6 +336,9 @@
       {userUsesRemaining}
       {queueState}
       {pendingJobs}
+      {dismissedResults}
+      {clockNow}
+      onReopenDismissed={reopenDismissed}
     />
   {/if}
 
@@ -358,28 +361,6 @@
         onRequestVaultUnlock={requestVaultUnlock}
       />
     {/each}
-  {/if}
-
-  <!-- Dismissed results: image thumbnail + countdown, click to reopen -->
-  {#if dismissedResults.length > 0}
-    <div class="dismissed-shelf">
-      {#each dismissedResults as dismissed (dismissed.id)}
-        {@const secondsLeft = Math.max(0, Math.ceil((dismissed.expiresAt - clockNow) / 1000))}
-        {@const mm = String(Math.floor(secondsLeft / 60))}
-        {@const ss = String(secondsLeft % 60).padStart(2, '0')}
-        <button class="dismissed-card" onclick={() => reopenDismissed(dismissed.id)} type="button" title="Click to reopen result">
-          {#if dismissed.imageUrl}
-            <img src={dismissed.imageUrl} alt="Dismissed result" class="dismissed-thumb" />
-          {:else}
-            <div class="dismissed-thumb-placeholder">…</div>
-          {/if}
-          <div class="dismissed-meta">
-            <span class="dismissed-prompt">{dismissed.promptSnippet || 'Result'}</span>
-            <span class="dismissed-timer">{mm}:{ss}</span>
-          </div>
-        </button>
-      {/each}
-    </div>
   {/if}
 
   {#if showAdmin && user?.isAdmin}
@@ -473,96 +454,6 @@
     text-align: center;
   }
 
-  /* Dismissed results shelf ───────────────────────────────────────── */
-  .dismissed-shelf {
-    position: fixed;
-    bottom: 1.25rem;
-    right: 1rem;
-    z-index: 300;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    align-items: flex-end;
-    pointer-events: none;
-  }
-
-  .dismissed-card {
-    pointer-events: all;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    background: rgba(15, 18, 23, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.75rem;
-    padding: 0.4rem 0.65rem 0.4rem 0.4rem;
-    cursor: pointer;
-    backdrop-filter: blur(16px);
-    max-width: 260px;
-    transition: border-color 0.15s, transform 0.15s;
-    animation: dismissed-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-    text-align: left;
-    font: inherit;
-    color: inherit;
-  }
-
-  .dismissed-card:hover {
-    border-color: rgba(82, 116, 144, 0.4);
-    transform: translateY(-2px);
-  }
-
-  @keyframes dismissed-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
-
-  .dismissed-thumb {
-    width: 2.75rem;
-    height: 2.75rem;
-    object-fit: cover;
-    border-radius: 0.45rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    flex-shrink: 0;
-    display: block;
-  }
-
-  .dismissed-thumb-placeholder {
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: 0.45rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #525a66;
-    font-size: 0.9rem;
-    flex-shrink: 0;
-  }
-
-  .dismissed-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-
-  .dismissed-prompt {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.62rem;
-    color: #a4afbb;
-    letter-spacing: 0.03em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 170px;
-  }
-
-  .dismissed-timer {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.58rem;
-    color: #c4996a;
-    letter-spacing: 0.08em;
-  }
 
 
 </style>

@@ -134,7 +134,7 @@
             {/if}
           </button>
         {/if}
-        <button onclick={onDone} class="btn btn-ghost">New Job</button>
+        <button onclick={onDone} class="btn btn-ghost">Discard</button>
       </div>
       {#if saveError}
         <p class="save-error">{saveError}</p>

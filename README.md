@@ -180,12 +180,21 @@ are rejected with an `error` message containing `errorType: "queue_full"`.
 
 ### Queue UI
 
-The queue panel appears below the submit form and shows all queued jobs in real time:
+The queue panel appears below the submit form and has two zones:
 
+**Live queue (scrollable, ~6 rows):**
 - **Position** in queue (1, 2, 3, ...)
 - **Status badge** — `PROCESSING` (with progress %) or `WAITING`
 - **Estimated wait time** — calculated from a rolling average of the last 10 job durations
 - **Cancel button** — users can cancel their own pending or processing jobs
+
+**COMPLETED section (fixed, below live queue):**  
+When a result modal is closed without discarding, the finished job appears here as a static bar showing:
+- Tiny thumbnail preview (decrypted image)
+- Scrolling prompt text
+- `MM:SS` countdown timer (auto-expires after 2 minutes)
+
+Clicking a completed bar reopens the full result modal where you can **Download**, **Save** (vault), **Discard** (permanently removes), or **Close** (keeps bar in COMPLETED).
 
 The submit button always shows the current slot count: **ADD TO QUEUE (x/3)**.
 When the per-user limit is reached the button becomes disabled: **QUEUED JOBS (3/3)**.

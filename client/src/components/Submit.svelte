@@ -9,7 +9,7 @@
     encodeJobPayload,
   } from '../lib/crypto.js';
 
-  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map() } = $props();
+  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null } = $props();
 
   let codeDepleted = $derived(codeUsesRemaining !== null && codeUsesRemaining === 0);
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
@@ -751,7 +751,7 @@
     </form>
 
     <!-- ── Queue panel ──────────────────────────────────────────────── -->
-    {#if queueState.queue.length > 0}
+    {#if queueState.queue.length > 0 || dismissedResults.length > 0}
       <div class="queue-panel">
         <div class="queue-header">
           <span class="queue-title">QUEUE</span>
@@ -760,59 +760,90 @@
             <span class="queue-total-count">{queueState.queue.length} total</span>
           </div>
         </div>
-        <div class="queue-list">
-          {#each queueState.queue as item (item.jobId)}
-            {@const jobMeta = item.isYours ? pendingJobs.get(item.jobId) : null}
-            <div class="queue-item" class:queue-mine={item.isYours} class:queue-theirs={!item.isYours} class:queue-active={item.status === 'processing'}>
-              <div class="queue-main-row">
-                <span class="queue-pos">#{item.position}</span>
-                {#if item.isYours}
-                  <span class="queue-mine-badge">YOU</span>
-                {:else}
-                  <span class="queue-theirs-badge">OTHER</span>
-                {/if}
-                <span class="queue-status" class:queue-processing={item.status === 'processing'}>
-                  {#if item.status === 'processing'}
-                    {#if item.isYours}
-                      <span class="queue-progress-inline" style:--progress="{pct}%">PROCESSING {pct}%</span>
-                    {:else}
-                      <span class="queue-dot processing"></span> PROCESSING
-                    {/if}
+        {#if queueState.queue.length > 0}
+          <div class="queue-list">
+            {#each queueState.queue as item (item.jobId)}
+              {@const jobMeta = item.isYours ? pendingJobs.get(item.jobId) : null}
+              <div class="queue-item" class:queue-mine={item.isYours} class:queue-theirs={!item.isYours} class:queue-active={item.status === 'processing'}>
+                <div class="queue-main-row">
+                  <span class="queue-pos">#{item.position}</span>
+                  {#if item.isYours}
+                    <span class="queue-mine-badge">YOU</span>
                   {:else}
-                    <span class="queue-dot waiting"></span> WAITING
+                    <span class="queue-theirs-badge">OTHER</span>
                   {/if}
-                </span>
-                {#if item.isYours && (jobMeta?.preview1 || jobMeta?.preview2)}
-                  <div class="queue-thumbs">
-                    {#if jobMeta.preview1}
-                      <img src={jobMeta.preview1} alt="" class="queue-thumb" draggable="false" />
+                  <span class="queue-status" class:queue-processing={item.status === 'processing'}>
+                    {#if item.status === 'processing'}
+                      {#if item.isYours}
+                        <span class="queue-progress-inline" style:--progress="{pct}%">PROCESSING {pct}%</span>
+                      {:else}
+                        <span class="queue-dot processing"></span> PROCESSING
+                      {/if}
+                    {:else}
+                      <span class="queue-dot waiting"></span> WAITING
                     {/if}
-                    {#if jobMeta.preview2}
-                      <img src={jobMeta.preview2} alt="" class="queue-thumb" draggable="false" />
+                  </span>
+                  {#if item.isYours && (jobMeta?.preview1 || jobMeta?.preview2)}
+                    <div class="queue-thumbs">
+                      {#if jobMeta.preview1}
+                        <img src={jobMeta.preview1} alt="" class="queue-thumb" draggable="false" />
+                      {/if}
+                      {#if jobMeta.preview2}
+                        <img src={jobMeta.preview2} alt="" class="queue-thumb" draggable="false" />
+                      {/if}
+                    </div>
+                  {/if}
+                  <span class="queue-eta">
+                    {#if item.status === 'pending'}
+                      ~{Math.max(1, Math.round(item.position * queueState.avgDuration / 60))}m
                     {/if}
+                  </span>
+                  {#if item.isYours}
+                    <button type="button" class="queue-cancel" onclick={() => handleCancelJob(item.jobId)} aria-label="Cancel job">
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </button>
+                  {/if}
+                </div>
+                {#if item.isYours && jobMeta?.promptText}
+                  <div class="queue-prompt-row">
+                    <span class="queue-prompt-scroll">
+                      <span class="queue-prompt-inner">{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                    </span>
                   </div>
                 {/if}
-                <span class="queue-eta">
-                  {#if item.status === 'pending'}
-                    ~{Math.max(1, Math.round(item.position * queueState.avgDuration / 60))}m
-                  {/if}
-                </span>
-                {#if item.isYours}
-                  <button type="button" class="queue-cancel" onclick={() => handleCancelJob(item.jobId)} aria-label="Cancel job">
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                  </button>
-                {/if}
               </div>
-              {#if item.isYours && jobMeta?.promptText}
-                <div class="queue-prompt-row">
-                  <span class="queue-prompt-scroll">
-                    <span class="queue-prompt-inner">{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-                  </span>
-                </div>
-              {/if}
+            {/each}
+          </div>
+        {/if}
+
+        <!-- ── Completed jobs ──────────────────────────────────────── -->
+        {#if dismissedResults.length > 0}
+          <div class="queue-finished-section">
+            <div class="queue-finished-header">
+              <span class="queue-finished-title">COMPLETED</span>
+              <span class="queue-finished-count">{dismissedResults.length}</span>
             </div>
-          {/each}
-        </div>
+            {#each dismissedResults as d (d.id)}
+              {@const secondsLeft = Math.max(0, Math.ceil((d.expiresAt - clockNow) / 1000))}
+              {@const mm = String(Math.floor(secondsLeft / 60))}
+              {@const ss = String(secondsLeft % 60).padStart(2, '0')}
+              <button type="button" class="queue-finished-item" onclick={() => onReopenDismissed?.(d.id)}>
+                <div class="queue-main-row">
+                  {#if d.imageUrl}
+                    <img src={d.imageUrl} alt="" class="queue-finished-thumb" draggable="false" />
+                  {:else}
+                    <div class="queue-finished-placeholder"></div>
+                  {/if}
+                  <span class="queue-finished-badge">DONE</span>
+                  <span class="queue-finished-prompt">
+                    <span class="queue-finished-prompt-inner">{d.promptSnippet || 'Result'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{d.promptSnippet || 'Result'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                  </span>
+                  <span class="queue-finished-timer">{mm}:{ss}</span>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -1701,7 +1732,15 @@
   .queue-list {
     display: flex;
     flex-direction: column;
+    max-height: calc(6 * 3.4rem);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.08) transparent;
   }
+
+  .queue-list::-webkit-scrollbar { width: 3px; }
+  .queue-list::-webkit-scrollbar-track { background: transparent; }
+  .queue-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
   .queue-item {
     display: flex;
@@ -1884,5 +1923,121 @@
   @keyframes queue-marquee {
     0%   { transform: translateX(0); }
     100% { transform: translateX(-50%); }
+  }
+
+  /* ── Completed jobs section ─────────────────────────────────────────── */
+  .queue-finished-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .queue-finished-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.875rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .queue-finished-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.18em;
+    color: #525a66;
+    font-weight: 500;
+  }
+
+  .queue-finished-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: #525a66;
+    letter-spacing: 0.05em;
+  }
+
+  .queue-finished-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 0.45rem 0.875rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition: background 0.15s;
+  }
+
+  .queue-finished-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .queue-finished-item:last-child {
+    border-bottom: none;
+  }
+
+  .queue-finished-item:active {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .queue-finished-thumb {
+    width: 26px;
+    height: 26px;
+    object-fit: cover;
+    border-radius: 0.2rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .queue-finished-placeholder {
+    width: 26px;
+    height: 26px;
+    border-radius: 0.2rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
+  }
+
+  .queue-finished-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.5rem;
+    letter-spacing: 0.15em;
+    color: #527490;
+    background: rgba(82, 116, 144, 0.1);
+    border: 1px solid rgba(82, 116, 144, 0.25);
+    border-radius: 0.2rem;
+    padding: 0.05rem 0.28rem;
+    flex-shrink: 0;
+  }
+
+  .queue-finished-prompt {
+    display: block;
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  }
+
+  .queue-finished-prompt-inner {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    color: #6c7585;
+    animation: queue-marquee 18s linear infinite;
+  }
+
+  .queue-finished-timer {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: #c4996a;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
   }
 </style>
