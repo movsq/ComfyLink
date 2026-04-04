@@ -48,6 +48,7 @@
 
       imageBytes = plaintext;
       const blob = new Blob([plaintext], { type: 'image/png' });
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
       imageUrl = URL.createObjectURL(blob);
       // Notify parent so dismissed cards can show the image
       if (onImageReady) onImageReady(imageUrl);

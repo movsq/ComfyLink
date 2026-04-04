@@ -16,7 +16,8 @@
 
   // Queue-derived state
   let myQueueCount = $derived(queueState.queue.filter(j => j.isYours).length);
-  let queueFull = $derived(myQueueCount >= 3);
+  let queueLimit = $derived(queueState.maxQueuePerUser ?? 3);
+  let queueFull = $derived(myQueueCount >= queueLimit);
 
   // ── Per-form local state ──────────────────────────────────────────────
   let imageFile1 = $state(null);
@@ -310,6 +311,7 @@
     if (!prompt.trim() || status !== 'idle' || queueFull) return;
     error = '';
     status = 'encrypting';
+    let offQueued = null;
     try {
       const pcPubKeyB64  = await getPCPublicKey(token);
       const pcPublicKey  = await importPcPublicKey(pcPubKeyB64);
@@ -328,7 +330,7 @@
       const capturedPreview2 = imagePreviewUrl2;
 
       // Listen for the queued response to capture jobId
-      const offQueued = ws.on('queued', ({ jobId }) => {
+      offQueued = ws.on('queued', ({ jobId }) => {
         offQueued();
         onJobSubmitted({ aesKey, jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
         // Advance seed for next submission
@@ -345,6 +347,7 @@
       // Return to idle immediately so user can queue more jobs
       status = 'idle';
     } catch (err) {
+      if (offQueued) offQueued();
       error = err.message;
       status = 'error';
       setTimeout(() => { if (status === 'error') status = 'idle'; }, 3000);
@@ -754,9 +757,9 @@
           {#if status === 'encrypting'}
             ENCRYPTING...
           {:else if queueFull}
-            QUEUED JOBS ({myQueueCount}/3)
+            QUEUED JOBS ({myQueueCount}/{queueLimit})
           {:else}
-            ADD TO QUEUE ({myQueueCount}/3)
+            ADD TO QUEUE ({myQueueCount}/{queueLimit})
           {/if}
         </button>
       </div>
@@ -768,7 +771,7 @@
         <div class="queue-header">
           <span class="queue-title">QUEUE</span>
           <div class="queue-header-right">
-            <span class="queue-mine-count" class:queue-mine-full={queueFull}>{myQueueCount}/3 YOUR SLOTS</span>
+            <span class="queue-mine-count" class:queue-mine-full={queueFull}>{myQueueCount}/{queueLimit} YOUR SLOTS</span>
             <span class="queue-total-count">{queueState.queue.length} total</span>
           </div>
         </div>
@@ -807,7 +810,7 @@
                   {/if}
                   <span class="queue-eta">
                     {#if item.status === 'pending'}
-                      ~{Math.max(1, Math.round(item.position * queueState.avgDuration / 60))}m
+                      ~{Math.max(1, Math.round(Math.max(0, item.position - 1) * queueState.avgDuration / 60))}m
                     {/if}
                   </span>
                   {#if item.isYours}

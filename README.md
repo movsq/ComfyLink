@@ -176,7 +176,7 @@ the PC processes them one at a time.
 | Queue storage | In-memory (lost on server restart) |
 
 If a user already has 3 jobs in the queue (pending or processing), further submissions
-are rejected with an `error` message containing `errorType: "queue_full"`.
+are rejected with an `error` message in the form `{ type: "error", message: "queue_full" }`.
 
 ### Queue UI
 
@@ -205,15 +205,15 @@ When the per-user limit is reached the button becomes disabled: **QUEUED JOBS (3
 {
   "type": "queue_update",
   "queue": [
-    { "jobId": "...", "position": 1, "status": "processing", "mine": true },
-    { "jobId": "...", "position": 2, "status": "pending", "mine": false }
+    { "jobId": "...", "position": 1, "status": "processing", "isYours": true },
+    { "jobId": "...", "position": 2, "status": "pending", "isYours": false }
   ],
   "activeJobId": "abc123",
   "avgDuration": 45
 }
 ```
 
-Each entry's `mine` field is set per-recipient so clients know which jobs they own.
+Each entry's `isYours` field is set per-recipient so clients know which jobs they own.
 `avgDuration` is the rolling average completion time in seconds (defaults to 60 s).
 
 ---
@@ -503,7 +503,7 @@ All messages are JSON. The `payload` field is a base64 binary blob the server ne
 | Server → Phone | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` |
 | Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>" }` |
 | Server → Phone | `{ type: "error", jobId: "...", message: "..." }` |
-| Server → Phone | `{ type: "error", errorType: "queue_full" }` — user already has 3 jobs queued |
+| Server → Phone | `{ type: "error", message: "queue_full" }` — user already has 3 jobs queued |
 | Phone → Server | `{ type: "cancel", jobId: "..." }` |
 | Server → Phone | `{ type: "code_status", usesRemaining: N }` — code_user sessions only |
 | Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — Google user quota changed |

@@ -133,7 +133,7 @@ function broadcastQueueUpdate() {
   for (const [ws, meta] of allPhoneSockets) {
     if (ws.readyState !== 1) continue;
     const state = getQueueState(meta.userId);
-    sendJson(ws, { type: 'queue_update', ...state });
+    sendJson(ws, { type: 'queue_update', ...state, maxQueuePerUser: MAX_QUEUE_PER_USER });
   }
 }
 
@@ -840,7 +840,8 @@ function handlePcMessage(raw) {
       sendJson(job.phoneWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
     }
     console.log(`[pc] Job ${msg.jobId} completed.`);
-    // Clean up and dispatch next
+    deleteJob(msg.jobId);
+    // Dispatch next
     dispatchNextJob();
     broadcastQueueUpdate();
     return;
@@ -853,6 +854,7 @@ function handlePcMessage(raw) {
       if (job.phoneWs?.readyState === 1) {
         sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: msg.message });
       }
+      deleteJob(msg.jobId);
     }
     console.warn(`[pc] Error for job ${msg.jobId}: ${msg.message}`);
     // Dispatch next job after error
@@ -892,7 +894,7 @@ function handlePhoneSocket(ws, jwtPayload) {
 
   // Send initial queue state
   const initialState = getQueueState(queueUserId);
-  sendJson(ws, { type: 'queue_update', ...initialState });
+  sendJson(ws, { type: 'queue_update', ...initialState, maxQueuePerUser: MAX_QUEUE_PER_USER });
 
   // ── Per-socket submit rate limiter (max 10 submits / 60 s sliding window) ────
   const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -931,12 +933,17 @@ function handlePhoneSocket(ws, jwtPayload) {
         const job = getJob(msg.jobId);
         if (job && job.userId === queueUserId) {
           const wasProcessing = job.status === 'processing';
-          updateJobStatus(msg.jobId, 'cancelled');
-          if (pcSocket && pcSocket.readyState === 1 && wasProcessing) {
-            sendJson(pcSocket, { type: 'cancel', jobId: msg.jobId });
+          if (wasProcessing) {
+            updateJobStatus(msg.jobId, 'cancelled');
+            if (pcSocket && pcSocket.readyState === 1) {
+              sendJson(pcSocket, { type: 'cancel', jobId: msg.jobId });
+            }
+            // If cancelled a processing job, dispatch next
+            dispatchNextJob();
+          } else {
+            // Pending job: remove immediately to free memory
+            deleteJob(msg.jobId);
           }
-          // If cancelled a processing job, dispatch next
-          if (wasProcessing) dispatchNextJob();
           broadcastQueueUpdate();
         }
       }

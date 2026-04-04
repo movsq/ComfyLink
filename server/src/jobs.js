@@ -58,7 +58,7 @@ export function completeJob(id, encryptedResult) {
   job.status = 'done';
   job.encryptedResult = encryptedResult;
   job.completedAt = Date.now();
-  // Record duration for avg calculation (only if it was processing)
+  // Record end-to-end duration for avg calculation (includes queue wait time)
   if (job.createdAt) {
     completionDurations.push(job.completedAt - job.createdAt);
     if (completionDurations.length > MAX_DURATION_SAMPLES) completionDurations.shift();

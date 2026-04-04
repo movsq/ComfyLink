@@ -166,8 +166,12 @@
       ws = null;
       token = null;
       user = null;
-      // Cancel all dismissed timers
-      dismissedResults.forEach(d => clearTimeout(d.timerId));
+      // Cancel all dismissed timers and revoke object URLs
+      dismissedResults.forEach(d => {
+        clearTimeout(d.timerId);
+        if (d.imageUrl) URL.revokeObjectURL(d.imageUrl);
+      });
+      resultStack.forEach(item => { if (item.imageUrl) URL.revokeObjectURL(item.imageUrl); });
       resultStack = [];
       dismissedResults = [];
       pendingJobs = new Map();
@@ -279,6 +283,8 @@
     // Move to dismissed with 2-min auto-expire
     const expiresAt = Date.now() + 120_000;
     const timerId = setTimeout(() => {
+      const expiring = dismissedResults.find(d => d.id === item.id);
+      if (expiring?.imageUrl) URL.revokeObjectURL(expiring.imageUrl);
       dismissedResults = dismissedResults.filter(d => d.id !== item.id);
     }, 120_000);
     dismissedResults = [...dismissedResults, { ...item, expiresAt, timerId }];
@@ -289,6 +295,7 @@
     if (seedMode === 'randomize') seed = randomSeed();
     else if (seedMode === 'increment') seed = seed + 1;
     else if (seedMode === 'decrement') seed = seed - 1;
+    if (resultStack[0]?.imageUrl) URL.revokeObjectURL(resultStack[0].imageUrl);
     resultStack = resultStack.slice(1);
     wsError = '';
   }
