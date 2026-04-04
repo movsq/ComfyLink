@@ -101,6 +101,7 @@
         aesKey: entry.aesKey,
         promptSnippet: (entry.promptText ?? '').slice(0, 80),
         imageUrl: null,
+        expiresAt: Date.now() + 120_000, // 2-min shelf window starts now
       }];
       // Remove from pending
       pendingJobs.delete(msg.jobId);
@@ -275,19 +276,23 @@
     }
   }
 
-  // ── Modal close: dismiss front result to 2-min recovery shelf ────────────────────
+  // ── Modal close: dismiss front result to recovery shelf (remaining time of its 2-min window) ──
   function handleClose() {
     if (resultStack.length === 0) return;
     const item = resultStack[0];
     resultStack = resultStack.slice(1);
-    // Move to dismissed with 2-min auto-expire
-    const expiresAt = Date.now() + 120_000;
+    const remaining = item.expiresAt - Date.now();
+    if (remaining <= 0) {
+      // Window already expired while modal was open — discard silently
+      if (item.imageUrl) URL.revokeObjectURL(item.imageUrl);
+      return;
+    }
     const timerId = setTimeout(() => {
       const expiring = dismissedResults.find(d => d.id === item.id);
       if (expiring?.imageUrl) URL.revokeObjectURL(expiring.imageUrl);
       dismissedResults = dismissedResults.filter(d => d.id !== item.id);
-    }, 120_000);
-    dismissedResults = [...dismissedResults, { ...item, expiresAt, timerId }];
+    }, remaining);
+    dismissedResults = [...dismissedResults, { ...item, timerId }];
   }
 
   // ── New Job: discard front result cleanly, advance seed ──────────────────────
@@ -306,13 +311,14 @@
     dismissedResults = dismissedResults.map(item => item.id === id ? { ...item, imageUrl: url } : item);
   }
 
-  // Re-open a dismissed result: cancel its expiry and bring it to the front
+  // Re-open a dismissed result: cancel its expiry timer and bring it to the front.
+  // expiresAt is preserved so handleClose can compute remaining shelf time if closed again.
   function reopenDismissed(id) {
     const item = dismissedResults.find(d => d.id === id);
     if (!item) return;
     clearTimeout(item.timerId);
     dismissedResults = dismissedResults.filter(d => d.id !== id);
-    const { expiresAt, timerId, ...entry } = item;
+    const { timerId, ...entry } = item; // keep expiresAt
     resultStack = [entry, ...resultStack];
   }
 
