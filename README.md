@@ -9,6 +9,12 @@ results are visible to it.
 [Phone browser] ──── WSS encrypted ────▶ [VPS relay] ──── WSS encrypted ────▶ [PC + ComfyUI]
 ```
 
+**Why this exists:** I wanted to run Flux 2 on my home PC's GPU and use it from my phone
+without exposing any ports on my home network. The PC connects *outbound* to a cheap VPS
+relay, so no port-forwarding or dynamic DNS is needed — just an internet connection on both
+ends. Everything between phone and PC is end-to-end encrypted; the relay is intentionally
+blind.
+
 ---
 
 ## Prerequisites
@@ -98,6 +104,13 @@ cd pc-client && python main.py
 ```
 
 Open the URL Vite prints (e.g. `http://localhost:5173`) in your browser and sign in with Google.
+
+> **Testing without a GPU:** The pc-client includes `comfyui_mock.py` — a mock processor
+> that returns a tinted version of your input image (no GPU required). To use it, change
+> the import in `main.py` from `from comfyui import …` to `from comfyui_mock import …`.
+
+> **Diagnosing `.env` issues:** Run `python pc-client/check_env.py` to verify that
+> `PC_SECRET` is being loaded from your `.env` file correctly.
 
 ### 7. Promote the first admin
 
@@ -263,6 +276,7 @@ JWT_SECRET=another-strong-random-secret-here
 GOOGLE_CLIENT_ID=your-google-oauth-client-id
 VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id
 FLUX_KLEIN_HOST=your-hostname.example.com
+ALLOWED_ORIGINS=https://your-hostname.example.com
 EOF
 ```
 
