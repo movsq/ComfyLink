@@ -12,6 +12,12 @@ node_modules/
 # client/dist is built fresh by GitHub Actions on every deploy.
 client/dist/
 
+# ── Database / runtime data ───────────────────────────────────────────────────
+data/
+*.db
+*.sqlite
+*.sqlite3
+
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
@@ -25,6 +31,10 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# ── Temporary / raw screenshots (dropped in project root) ─────────────────────
+Screenshot*.png
+Screenshot*.jpg
 
 # ── SFTP / FTP config ─────────────────────────────────────────────────────────
 .sftp-config.json

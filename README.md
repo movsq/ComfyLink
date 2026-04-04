@@ -13,17 +13,23 @@ results are visible to it.
 
 ## Screenshots
 
-| Login | Generate |
-|:-----:|:--------:|
-| ![Login](docs/screenshots/login.png) | ![Generate](docs/screenshots/submit.png) |
-
-| Admin — Codes | Admin — Users |
-|:-------------:|:-------------:|
-| ![Admin Codes](docs/screenshots/admin-codes.png) | ![Admin Users](docs/screenshots/admin-users.png) |
-
-| Vault Settings | Unlock Vault | Gallery |
-|:--------------:|:------------:|:-------:|
-| ![Vault Settings](docs/screenshots/vault-settings.png) | ![Unlock Vault](docs/screenshots/unlock-vault.png) | ![Gallery](docs/screenshots/gallery.png) |
+<table>
+  <tr>
+    <td align="center"><b>Login</b><br><img src="docs/screenshots/login.png" width="220"></td>
+    <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.png" width="220"></td>
+    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/gallery.png" width="220"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Admin — Codes</b><br><img src="docs/screenshots/admin-codes.png" width="220"></td>
+    <td align="center"><b>Admin — Users</b><br><img src="docs/screenshots/admin-users.png" width="220"></td>
+    <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
 
 ---
 
