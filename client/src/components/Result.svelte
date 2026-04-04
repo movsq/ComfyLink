@@ -126,15 +126,26 @@
       <div class="actions">
         <a href={imageUrl} download="result.png" class="btn btn-accent">Download</a>
         {#if userType === 'google'}
-          <button onclick={handleSave} class="btn btn-ghost" class:save-pending={savePending} disabled={saving || saved}>
-            {#if saved}✓ Saved
-            {:else if saving}Saving…
-            {:else if savePending}Unlock vault to save
-            {:else}Save
-            {/if}
-          </button>
+          {#if saved}
+            <!-- Save chosen: Discard is gone, show confirmation -->
+            <button class="btn btn-ghost" disabled>✓ Saved</button>
+          {:else if saving || savePending}
+            <!-- Save in progress / waiting for vault: hide Discard so user can't do both -->
+            <button class="btn btn-ghost save-pending" disabled>
+              {saving ? 'Saving…' : 'Unlock vault to save…'}
+            </button>
+          {:else}
+            <!-- Idle: show both options — user must pick one -->
+            <button onclick={handleSave} class="btn btn-ghost">Save</button>
+            <button onclick={onDone} class="btn btn-ghost btn-danger">Discard</button>
+          {/if}
+        {:else}
+          <!-- Code users have no vault: only Discard -->
+          <button onclick={onDone} class="btn btn-ghost btn-danger">Discard</button>
         {/if}
-        <button onclick={onDone} class="btn btn-ghost">Discard</button>
+        <!-- After a successful save the result is in the vault — close permanently
+             (onDone) so it doesn't linger in the 2-min dismissed shelf. -->
+        <button onclick={saved ? onDone : onClose} class="btn btn-ghost btn-close-action">Close</button>
       </div>
       {#if saveError}
         <p class="save-error">{saveError}</p>
@@ -293,6 +304,11 @@
     flex-shrink: 0;
   }
 
+  .btn-close-action {
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+
   .btn {
     flex: 1;
     padding: 0.75rem;
@@ -333,6 +349,17 @@
   .btn-ghost:hover {
     background: rgba(255, 255, 255, 0.1);
     color: #e4e4e7;
+  }
+
+  .btn-ghost.btn-danger {
+    color: #c47070;
+    border-color: rgba(196, 112, 112, 0.4);
+  }
+
+  .btn-ghost.btn-danger:hover {
+    background: rgba(196, 112, 112, 0.12);
+    color: #e07070;
+    border-color: rgba(196, 112, 112, 0.65);
   }
 
   .btn-ghost.save-pending {

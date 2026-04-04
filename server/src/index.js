@@ -498,12 +498,21 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
     return res.status(413).json({ error: 'Image too large (max 20MB)' });
   }
 
+  // Clamp fullSizeBytes to actual buffer length — client value is advisory metadata
+  // for display only, but must not exceed what we actually stored.
+  const sanitizedFullSizeBytes = Math.min(
+    Number.isFinite(Number(fullSizeBytes)) && Number(fullSizeBytes) > 0
+      ? Math.round(Number(fullSizeBytes))
+      : fullBuf.length,
+    fullBuf.length,
+  );
+
   const result = createStoredResult(req.user.userId, {
     encryptedThumb: Buffer.from(encryptedThumb, 'base64'),
     encryptedFull: fullBuf,
     ivThumb: Buffer.from(ivThumb, 'base64'),
     ivFull: Buffer.from(ivFull, 'base64'),
-    fullSizeBytes: fullSizeBytes ?? fullBuf.length,
+    fullSizeBytes: sanitizedFullSizeBytes,
   });
 
   res.json(result);
@@ -574,7 +583,11 @@ app.post('/auth/code', (req, res) => {
 
 /** GET /admin/users — list users, optionally filter by status */
 app.get('/admin/users', requireAdmin, (req, res) => {
+  const VALID_STATUSES = ['pending', 'active', 'suspended'];
   const status = req.query.status ?? null;
+  if (status !== null && !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status filter' });
+  }
   const users = getAllUsers(status);
   res.json(users.map(u => ({
     id: u.id,
@@ -788,15 +801,23 @@ function handlePcMessage(raw) {
   }
 
   if (msg.type === 'progress') {
+    // Validate numeric fields before forwarding — a compromised PC could push
+    // NaN, Infinity, or strings that would corrupt client state.
+    const value = Number(msg.value);
+    const max   = Number(msg.max);
+    if (!Number.isFinite(value) || !Number.isFinite(max) || value < 0 || max < 0) return;
     const job = getJob(msg.jobId);
-    if (job?.phoneWs?.readyState === 1) {
-      sendJson(job.phoneWs, {
-        type: 'progress',
-        jobId: msg.jobId,
-        value: msg.value,
-        max: msg.max,
-        node: msg.node ?? null,
-      });
+    // Broadcast value/max to all phone clients (drives the progress bar for everyone).
+    // node is internal ComfyUI telemetry — send it only to the job owner.
+    const broadcastPayload = { type: 'progress', jobId: msg.jobId, value, max };
+    for (const [ws] of allPhoneSockets) {
+      if (ws.readyState !== 1) continue;
+      if (ws === job?.phoneWs) {
+        // Job owner gets the full payload including node
+        sendJson(ws, { ...broadcastPayload, node: msg.node ?? null });
+      } else {
+        sendJson(ws, broadcastPayload);
+      }
     }
     return;
   }
@@ -905,7 +926,8 @@ function handlePhoneSocket(ws, jwtPayload) {
       submitTimestamps.push(now);
       handleJobSubmit(ws, msg, jwtPayload, queueUserId);
     } else if (msg.type === 'cancel') {
-      if (typeof msg.jobId === 'string' && msg.jobId) {
+      // Validate jobId length to prevent oversized strings probing internal state
+      if (typeof msg.jobId === 'string' && msg.jobId && msg.jobId.length <= 64) {
         const job = getJob(msg.jobId);
         if (job && job.userId === queueUserId) {
           const wasProcessing = job.status === 'processing';
@@ -919,7 +941,9 @@ function handlePhoneSocket(ws, jwtPayload) {
         }
       }
     } else {
-      sendJson(ws, { type: 'error', message: `Unknown message type: ${msg.type}` });
+      // Do NOT echo msg.type back — an attacker could send a large string to
+      // inflate log output or probe error serialisation.
+      sendJson(ws, { type: 'error', message: 'Unknown message type' });
     }
   });
 
@@ -1003,7 +1027,10 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
         return;
       }
       notifyAdmins('codes_changed');
-      notifyCodeUsers(jwtPayload.codeId, codeRow.uses_remaining - 1);
+      // Re-read after atomic decrement so we send the authoritative value,
+      // not a stale pre-decrement calculation (same pattern used for Google users above).
+      const updatedCode = findInviteCodeById(jwtPayload.codeId);
+      notifyCodeUsers(jwtPayload.codeId, updatedCode?.uses_remaining ?? 0);
     }
   }
 

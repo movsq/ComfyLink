@@ -143,6 +143,18 @@
     return () => offs.forEach(off => off());
   });
 
+  // Reset progress whenever the server's active job changes (handles stale pct between jobs)
+  $effect(() => {
+    const activeId = queueState.activeJobId;
+    if (_trackingJobId !== activeId) {
+      progressValue = 0;
+      progressMax = 1;
+      progressPhase = 1;
+      _prevValue = 0;
+      _trackingJobId = activeId;
+    }
+  });
+
   function resetProgress() {
     progressValue = 0;
     progressMax   = 1;
@@ -774,10 +786,10 @@
                   {/if}
                   <span class="queue-status" class:queue-processing={item.status === 'processing'}>
                     {#if item.status === 'processing'}
-                      {#if item.isYours}
+                      {#if pct > 0}
                         <span class="queue-progress-inline" style:--progress="{pct}%">PROCESSING {pct}%</span>
                       {:else}
-                        <span class="queue-dot processing"></span> PROCESSING
+                        <span class="queue-progress-inline queue-progress-indeterminate">PROCESSING</span>
                       {/if}
                     {:else}
                       <span class="queue-dot waiting"></span> WAITING
@@ -1823,12 +1835,6 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-
-  .queue-dot.processing {
-    background: #527490;
-    animation: queue-pulse 1.5s ease-in-out infinite;
-  }
-
   .queue-dot.waiting {
     background: #525a66;
   }
@@ -1850,6 +1856,25 @@
     );
     padding: 0.1rem 0.4rem;
     border-radius: 0.25rem;
+  }
+
+
+  @keyframes queue-sweep {
+    0%   { background-position: 200% center; }
+    100% { background-position: -200% center; }
+  }
+
+  .queue-progress-indeterminate {
+    background: linear-gradient(
+      90deg,
+      transparent 25%,
+      rgba(82, 116, 144, 0.28) 50%,
+      transparent 75%
+    );
+    background-size: 200% 100%;
+    animation: queue-sweep 1.8s linear infinite;
+    color: #527490;
+    opacity: 0.7;
   }
 
   .queue-thumbs {
