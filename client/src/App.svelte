@@ -344,7 +344,7 @@
     <TermsModal
       {token}
       onAccepted={() => { tosAccepted = true; showTerms = false; }}
-      onDeclined={() => { showTerms = false; }}
+      onDeclined={() => { showTerms = true; }}
     />
   {/if}
 </div>

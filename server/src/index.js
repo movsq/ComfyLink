@@ -171,7 +171,8 @@ app.post('/auth/google', async (req, res) => {
     });
     return res.json({
       token,
-      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null },
+      tosAccepted: !!existing.tos_accepted_at,
+      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null, tosAccepted: !!existing.tos_accepted_at },
     });
   }
 
@@ -199,7 +200,8 @@ app.post('/auth/google', async (req, res) => {
     });
     return res.json({
       token,
-      user: { name: user.name, email: user.email, status: user.status, isAdmin: !!user.is_admin, usesRemaining: user.uses_remaining ?? null },
+      tosAccepted: false,
+      user: { name: user.name, email: user.email, status: user.status, isAdmin: !!user.is_admin, usesRemaining: user.uses_remaining ?? null, tosAccepted: false },
     });
   }
 
