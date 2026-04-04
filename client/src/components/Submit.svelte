@@ -816,12 +816,26 @@
     gap: 1.1rem;
   }
 
+  /* ────────────────────────────────────────────────────────────────────
+     Entrance animation tokens — adjust --el-opacity per element to
+     control its final translucency. fill-mode: backwards means the
+     element is hidden during its delay then reverts to the natural
+     opacity below once the animation completes (no permanent override).
+  ──────────────────────────────────────────────────────────────────── */
+  @keyframes constructIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
   .form-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 0.2rem;
+    --el-opacity: 1;
+    opacity: var(--el-opacity);
+    animation: constructIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.05s backwards;
   }
 
   .form-header-right {
@@ -843,17 +857,22 @@
     height: 2rem;
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    background-color: rgba(9, 9, 11, 0.84);
+    background-image:
+      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-attachment: fixed;
     color: #8b96a6;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: transform 0.12s ease, filter 0.12s ease, background 0.2s, color 0.2s;
+    transition: transform 0.12s ease, filter 0.12s ease, background-color 0.2s, color 0.2s;
     flex-shrink: 0;
   }
 
-  .btn-admin:hover { background: rgba(255, 255, 255, 0.1); color: #7b9cbf; }
+  .btn-admin:hover { background-color: rgba(9, 9, 11, 0.5); color: #7b9cbf; }
   .btn-admin:active { transform: scale(0.88); filter: brightness(0.85); }
 
   .form-title {
@@ -885,6 +904,9 @@
   .field {
     display: flex;
     flex-direction: column;
+    --el-opacity: 1;
+    opacity: var(--el-opacity);
+    animation: constructIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.25s backwards;
   }
 
   /* ── Image slots ───────────────────────────────────────────────────── */
@@ -892,6 +914,9 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
+    --el-opacity: 1;
+    opacity: var(--el-opacity);
+    animation: constructIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.15s backwards;
   }
 
   .img-slot {
@@ -914,18 +939,18 @@
     border: 1px dashed rgba(255, 255, 255, 0.12);
     border-radius: 0.75rem;
     height: 180px;
-    background: rgba(255, 255, 255, 0.02);
-    color: #6c7585;
-    font-family: 'DM Mono', monospace;
-    font-size: 0.68rem;
-    letter-spacing: 0.12em;
-    transition: border-color 0.2s, color 0.2s, background 0.2s, box-shadow 0.2s;
+    background-color: rgba(9, 9, 11, 0.84);
+    background-image:
+      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-attachment: fixed;
   }
 
   .img-label:hover .drop-zone {
     border-color: rgba(123, 156, 191, 0.4);
     color: #7b9cbf;
-    background: rgba(123, 156, 191, 0.04);
+    background-color: rgba(123, 156, 191, 0.06);
   }
 
   .img-preview-wrap {
@@ -964,6 +989,10 @@
 
   .drop-zone > span {
     pointer-events: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    color: #6c7585;
+    letter-spacing: 0.04em;
   }
 
   .drag-target .drop-zone {
@@ -1030,7 +1059,12 @@
     padding: 0.65rem 0.875rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
-    background: rgba(255, 255, 255, 0.05);
+    background-color: rgba(9, 9, 11, 0.84);
+    background-image:
+      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-attachment: fixed;
     color: #e4e4e7;
     font-family: 'DM Mono', monospace;
     font-size: 0.85rem;
@@ -1228,6 +1262,9 @@
     gap: 0.5rem;
     align-items: center;
     margin-top: 0.25rem;
+    --el-opacity: 1;
+    opacity: var(--el-opacity);
+    animation: constructIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.42s backwards;
   }
 
   .btn-generate {
@@ -1326,17 +1363,25 @@
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.65rem 0.875rem;
-    background: rgba(255, 255, 255, 0.04);
+    background-color: rgba(9, 9, 11, 0.84);
+    background-image:
+      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-attachment: fixed;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s, transform 0.12s ease, filter 0.12s ease;
+    transition: border-color 0.2s, background-color 0.2s, transform 0.12s ease, filter 0.12s ease;
     text-align: left;
+    --el-opacity: 1;
+    opacity: var(--el-opacity);
+    animation: constructIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.33s backwards;
   }
 
   .config-row:hover {
     border-color: rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.07);
+    background-color: rgba(9, 9, 11, 0.7);
   }
   .config-row:active { transform: scale(0.99); filter: brightness(0.9); }
 

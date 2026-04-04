@@ -38,6 +38,9 @@
   let showVaultSettings = $state(false);
   let pendingVaultAction = $state(null); // callback after unlock
 
+  // Transition animation state
+  let loginExiting = $state(false);
+
   // Seed + mode are owned here so they survive cycles
   let seed = $state(randomSeed());
   let seedMode = $state('randomize');
@@ -47,16 +50,20 @@
 
   // ── Login ──────────────────────────────────────────────────────────────────
   function handleLogin(newToken, newUser) {
-    token = newToken;
-    user = newUser;
-    view = 'submit';
+    loginExiting = true;
 
-    // Initialise quota for Google users from login response
-    if (!newUser.type || newUser.type !== 'code_user') {
-      userUsesRemaining = newUser.usesRemaining ?? null;
-    }
+    setTimeout(() => {
+      loginExiting = false;
+      token = newToken;
+      user = newUser;
+      view = 'submit';
 
-    ws = createPhoneWS(token);
+      // Initialise quota for Google users from login response
+      if (!newUser.type || newUser.type !== 'code_user') {
+        userUsesRemaining = newUser.usesRemaining ?? null;
+      }
+
+      ws = createPhoneWS(token);
 
     ws.on('queued', ({ jobId }) => {
       currentJobId = jobId;
@@ -138,6 +145,8 @@
     if (isGoogleUser) {
       checkVault();
     }
+
+    }, 650);
   }
 
   async function checkVault() {
@@ -240,7 +249,7 @@
   {/if}
 
   {#if view === 'login'}
-    <Login onLogin={handleLogin} />
+    <Login onLogin={handleLogin} exiting={loginExiting} />
   {:else if view === 'submit'}
     <Submit
       {token} {ws}
@@ -334,8 +343,8 @@
     font-family: 'Syne', system-ui, sans-serif;
     background: #09090b;
     background-image:
-      linear-gradient(rgba(123, 156, 191, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(123, 156, 191, 0.03) 1px, transparent 1px);
+      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
     background-size: 48px 48px;
     color: #e4e4e7;
     -webkit-font-smoothing: antialiased;
@@ -356,4 +365,6 @@
     padding: 0.5rem 1rem;
     text-align: center;
   }
+
+
 </style>

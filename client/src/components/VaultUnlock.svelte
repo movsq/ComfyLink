@@ -4,13 +4,19 @@
     deriveKeyFromPassword, deriveKeyFromPRF,
     unwrapMasterKey, b64ToBuf,
   } from '../lib/vault-crypto.js';
-  import { authenticateWithPRF } from '../lib/webauthn.js';
+  import { authenticateWithPRF, checkPlatformAuthenticator } from '../lib/webauthn.js';
+  import { onMount } from 'svelte';
 
   let { token, vaultInfo, onUnlocked, onCancel, onOpenSettings = () => {} } = $props();
 
   let mode = $state('choose'); // 'choose' | 'password'
   let loading = $state(false);
   let error = $state('');
+  let bioAvailable = $state(false);
+
+  onMount(async () => {
+    bioAvailable = await checkPlatformAuthenticator();
+  });
 
   // Password field
   let password = $state('');
@@ -72,12 +78,12 @@
 
       <div class="methods">
         {#if vaultInfo.hasBio}
-          <button class="method-btn" disabled={loading} onclick={handleBiometric}>
+          <button class="method-btn" class:unavailable={!bioAvailable} disabled={loading || !bioAvailable} onclick={handleBiometric}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
             <span class="method-label">Biometric</span>
-            <span class="method-sub">Fingerprint · Face ID</span>
+            <span class="method-sub">{bioAvailable ? 'Fingerprint · Face ID' : 'Not available on this device'}</span>
           </button>
         {/if}
 
@@ -203,6 +209,8 @@
   }
   .method-btn:active:not(:disabled) { transform: scale(0.97); }
   .method-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .method-btn.unavailable { opacity: 0.45; cursor: not-allowed; }
+  .method-btn.unavailable .method-sub { color: #8b96a6; }
   .method-btn svg { color: #7b9cbf; flex-shrink: 0; }
   .method-label { font-family: 'Syne', sans-serif; font-size: 0.9rem; font-weight: 600; }
   .method-sub {

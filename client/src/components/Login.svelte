@@ -1,7 +1,7 @@
 <script>
   import { loginWithGoogle, loginWithCode } from '../lib/api.js';
 
-  let { onLogin } = $props();
+  let { onLogin, exiting = false } = $props();
 
   let error = $state('');
   let loading = $state(false);
@@ -13,6 +13,8 @@
 
   // Wait for Google Identity Services to load, then initialize
   let gsiReady = $state(false);
+  let googleBtnNode = $state(null);
+  let btnVisible = $state(false);
 
   $effect(() => {
     if (typeof google !== 'undefined' && google.accounts) {
@@ -38,18 +40,22 @@
     gsiReady = true;
   }
 
-  function renderGoogleButton(node) {
-    // Re-render when gsiReady changes
-    if (!gsiReady) return;
-    google.accounts.id.renderButton(node, {
-      type: 'standard',
-      theme: 'filled_black',
-      size: 'large',
-      width: 260,
-      text: 'signin_with',
-      shape: 'pill',
-    });
-  }
+  $effect(() => {
+    if (gsiReady && googleBtnNode) {
+      google.accounts.id.renderButton(googleBtnNode, {
+        type: 'standard',
+        theme: 'filled_black',
+        size: 'large',
+        width: 260,
+        text: 'signin_with',
+        shape: 'pill',
+      });
+      // Delay visibility to let GSI finish both renders:
+      // first (generic) + second (personalized "Sign in as…") before fading in
+      const t = setTimeout(() => { btnVisible = true; }, 650);
+      return () => clearTimeout(t);
+    }
+  });
 
   async function handleGoogleCredential(response) {
     const idToken = response.credential;
@@ -123,7 +129,7 @@
   }
 </script>
 
-<div class="login-bg">
+<div class="login-bg" class:is-exiting={exiting}>
   {#if step === 'google'}
     <div class="login-card">
       <div class="brand">
@@ -132,10 +138,15 @@
       </div>
 
       <div class="google-btn-wrap">
-        {#if gsiReady}
-          <div use:renderGoogleButton></div>
-        {:else}
-          <div class="loading-placeholder">Loading…</div>
+        <div class="google-btn-slot" class:loaded={btnVisible} bind:this={googleBtnNode}></div>
+        {#if !btnVisible}
+          <div class="google-btn-placeholder" class:failed={!gsiReady && !btnVisible}>
+            {#if gsiReady}
+              <span class="dot-pulse"><span></span><span></span><span></span></span>
+            {:else}
+              <span class="placeholder-text">Connecting…</span>
+            {/if}
+          </div>
         {/if}
       </div>
 
@@ -262,6 +273,19 @@
     border-radius: 1.25rem;
     padding: 2rem 1.75rem;
     backdrop-filter: blur(16px);
+    animation: cardEntrance 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+
+  @keyframes cardEntrance {
+    from {
+      opacity: 0;
+      transform: translateY(28px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   .brand {
@@ -292,16 +316,65 @@
 
   .google-btn-wrap {
     display: flex;
+    flex-direction: column;
     justify-content: center;
+    align-items: center;
     padding: 0.25rem 0;
+    min-height: 48px;
+    position: relative;
   }
 
-  .loading-placeholder {
+  .google-btn-slot {
+    position: absolute;
+    width: 260px;
+    height: 44px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+
+  .google-btn-slot.loaded {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .google-btn-placeholder {
+    height: 44px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .placeholder-text {
     font-family: 'DM Mono', monospace;
-    font-size: 0.75rem;
-    color: #6c7585;
-    letter-spacing: 0.05em;
-    padding: 0.8rem 0;
+    font-size: 0.72rem;
+    color: #3d4550;
+    letter-spacing: 0.08em;
+  }
+
+  .dot-pulse {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+
+  .dot-pulse span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #3d4550;
+    animation: dotPulse 1.2s ease-in-out infinite;
+  }
+
+  .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+  .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes dotPulse {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+    40%            { transform: scale(1);   opacity: 1; }
   }
 
   .invite-prompt {
@@ -477,6 +550,28 @@
   }
   .btn-code-toggle:hover {
     color: #8b96a6;
+  }
+
+  .login-bg {
+    transition: filter 0.5s ease;
+  }
+
+  .login-bg.is-exiting .login-card {
+    animation: cardExit 0.65s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+    pointer-events: none;
+  }
+
+  @keyframes cardExit {
+    0% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+      filter: blur(0px);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.05) translateY(-12px);
+      filter: blur(12px);
+    }
   }
 
   @media (hover: none) and (pointer: coarse) {
