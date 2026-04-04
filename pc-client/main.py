@@ -1,15 +1,15 @@
 """
 main.py — PC-side WebSocket client.
 
-Connects outbound to the VPS relay, authenticates with a PIN,
+Connects outbound to the VPS relay, authenticates with PC_SECRET,
 sends the PC's public key, then processes encrypted jobs in a loop.
 
 Run with:
     python main.py
 
 Environment variables (or edit config.py):
-    VPS_URL        — e.g. wss://yourdomain.com  (default: ws://localhost:3000)
-    FLUX_KLEIN_PIN      — must match the PIN in server/.env
+    VPS_URL             — e.g. wss://yourdomain.com  (default: ws://localhost:3000)
+    PC_SECRET           — must match the PC_SECRET in server/.env
     PRIVATE_KEY_PATH / PUBLIC_KEY_PATH — paths to your keypair PEM files
 """
 
@@ -133,7 +133,7 @@ async def handle_job(ws, msg: dict) -> None:
     try:
         # ── Decrypt ───────────────────────────────────────────────────────────
         job_params, aes_key_bytes = decrypt_job(payload)
-        log.info(f"[job {job_id}] Decrypted. Prompt: {job_params['prompt'][:80]!r}")
+        log.info(f"[job {job_id}] Decrypted. Prompt: ***")
 
         async def send_progress(value: int, max_val: int, node: str | None) -> None:
             await ws.send(json.dumps({
