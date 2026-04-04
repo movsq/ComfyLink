@@ -200,6 +200,20 @@ export async function deleteResult(token, id) {
 
 // ── Access code auth ────────────────────────────────────────────────────────
 
+/** POST /auth/tos — record acceptance of Terms of Service */
+export async function acceptTos(token) {
+  const res = await fetch('/auth/tos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ accepted: true }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `ToS acceptance failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function loginWithCode(code) {
   const res = await fetch('/auth/code', {
     method: 'POST',

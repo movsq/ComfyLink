@@ -7,6 +7,7 @@
   import VaultUnlock from './components/VaultUnlock.svelte';
   import VaultSettings from './components/VaultSettings.svelte';
   import Gallery from './components/Gallery.svelte';
+  import TermsModal from './components/TermsModal.svelte';
   import { createPhoneWS } from './lib/ws.js';
   import { getVaultInfo } from './lib/api.js';
   import { onDestroy } from 'svelte';
@@ -29,6 +30,8 @@
   let showModal = $state(false);
   let showAdmin = $state(false);
   let showGallery = $state(false);
+  let showTerms = $state(false);
+  let tosAccepted = $state(false);
 
   // Vault state
   let vaultInfo = $state(null);       // null | { configured, hasBio, hasPw, ... }
@@ -57,6 +60,7 @@
       token = newToken;
       user = newUser;
       view = 'submit';
+      tosAccepted = !!newUser.tosAccepted;
 
       // Initialise quota for Google users from login response
       if (!newUser.type || newUser.type !== 'code_user') {
@@ -87,6 +91,8 @@
       // Map internal error keys to user-friendly messages
       if (message === 'no_uses_remaining') {
         wsError = 'No uses remaining — contact an admin to get more.';
+      } else if (message === 'tos_not_accepted') {
+        showTerms = true;
       } else {
         wsError = message ?? 'Unknown error';
       }
@@ -136,6 +142,8 @@
       showModal = false;
       showAdmin = false;
       showGallery = false;
+      showTerms = false;
+      tosAccepted = false;
       masterKey = null;
       vaultInfo = null;
       view = 'login';
@@ -144,6 +152,11 @@
     // Check vault status for Google users
     if (isGoogleUser) {
       checkVault();
+    }
+
+    // Show terms modal if not yet accepted (Google users only)
+    if (isGoogleUser && !tosAccepted) {
+      showTerms = true;
     }
 
     }, 650);
@@ -324,6 +337,14 @@
       {token}
       {masterKey}
       onClose={() => showGallery = false}
+    />
+  {/if}
+
+  {#if showTerms && isGoogleUser}
+    <TermsModal
+      {token}
+      onAccepted={() => { tosAccepted = true; showTerms = false; }}
+      onDeclined={() => { showTerms = false; }}
     />
   {/if}
 </div>
