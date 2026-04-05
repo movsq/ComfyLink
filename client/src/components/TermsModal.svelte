@@ -174,21 +174,22 @@
     scrollbar-color: rgba(82, 116, 144, 0.25) transparent;
   }
 
-  .section-heading {
+  .terms-scroll :global(.section-heading) {
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem; font-weight: 600;
     letter-spacing: 0.06em;
     color: #c2ccd5;
     margin: 1rem 0 0.25rem;
   }
-  .section-heading:first-child { margin-top: 0; }
+  .terms-scroll :global(.section-heading:first-child) { margin-top: 0; }
 
-  .terms-text {
+  .terms-text,
+  .terms-scroll :global(.terms-text) {
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem; color: #8b96a6;
     line-height: 1.65; margin: 0 0 0.25rem;
   }
-  .terms-text strong { color: #c2ccd5; }
+  .terms-scroll :global(.terms-text strong) { color: #c2ccd5; }
 
   .error {
     font-family: 'DM Mono', monospace;
