@@ -405,17 +405,22 @@ app.patch('/codes/:id', requireAdmin, (req, res) => {
 
   const { usesRemaining, expiresInHours } = req.body ?? {};
 
+  let usesNormalized = null;
+  let expiresInHoursNormalized = null;
+
   if (usesRemaining !== undefined && usesRemaining !== null) {
     const n = parseInt(usesRemaining, 10);
     if (isNaN(n) || n < 0) return res.status(400).json({ error: 'usesRemaining must be a non-negative integer or null' });
+    usesNormalized = n;
   }
   if (expiresInHours !== undefined && expiresInHours !== null) {
     const n = parseFloat(expiresInHours);
-    if (isNaN(n) || n <= 0) return res.status(400).json({ error: 'expiresInHours must be a positive number or null' });
+    if (isNaN(n) || n <= 0 || n > 87_600) return res.status(400).json({ error: 'expiresInHours must be a positive number and at most 87600' });
+    expiresInHoursNormalized = n;
   }
 
-  const expiresAt = expiresInHours != null ? Date.now() + parseFloat(expiresInHours) * 3600_000 : null;
-  const uses = usesRemaining != null ? parseInt(usesRemaining, 10) : null;
+  const expiresAt = expiresInHoursNormalized !== null ? Date.now() + expiresInHoursNormalized * 3600_000 : null;
+  const uses = usesNormalized !== null ? usesNormalized : null;
 
   const result = updateInviteCode(id, req.user.userId, { usesRemaining: uses, expiresAt });
   if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
