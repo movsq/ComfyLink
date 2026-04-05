@@ -14,6 +14,7 @@ services:
       - BEHIND_PROXY=true
       - DEPLOY_MODE=${DEPLOY_MODE:-remote}
       - MAX_RESULTS_PER_USER=${MAX_RESULTS_PER_USER:-500}
+      - MAX_TOTAL_QUEUE_DEPTH=${MAX_TOTAL_QUEUE_DEPTH:-50}
     volumes:
       - server_data:/app/data
 

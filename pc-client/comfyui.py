@@ -182,7 +182,7 @@ def _detect_extension(image_bytes: bytes) -> str:
         return ".png"
     if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
         return ".webp"
-    return ".png"  # safe fallback — PIL will handle it
+    raise ValueError("Unrecognised image format: only JPEG, PNG, and WebP are accepted")
 
 
 # ── ComfyUI API communication ──────────────────────────────────────────────────

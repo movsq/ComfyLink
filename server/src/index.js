@@ -54,11 +54,17 @@ import {
   getNextPendingJob,
   getActiveJob,
   getUserJobCount,
+  getTotalActiveJobCount,
   getQueueState,
   deleteJob,
 } from './jobs.js';
 
 const MAX_QUEUE_PER_USER = 3;
+// Global queue depth — prevents many different identities from filling the queue
+const MAX_TOTAL_QUEUE_DEPTH = parseInt(process.env.MAX_TOTAL_QUEUE_DEPTH ?? '50', 10);
+// Maximum encrypted payload size (base64 chars). Two 5 MB images ≈ 13 MB base64;
+// 20 MB gives headroom while blocking obviously over-sized blobs.
+const MAX_PAYLOAD_B64 = 20 * 1024 * 1024;
 const MAX_RESULTS_PER_USER = parseInt(process.env.MAX_RESULTS_PER_USER ?? '500', 10);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -314,6 +320,18 @@ app.post('/codes', requireAdmin, (req, res) => {
   const { type = 'registration', usesRemaining = 1, expiresInHours = null } = req.body ?? {};
   if (!['registration', 'job_access'].includes(type)) {
     return res.status(400).json({ error: 'Invalid type' });
+  }
+  if (usesRemaining !== null && usesRemaining !== undefined) {
+    const n = parseInt(usesRemaining, 10);
+    if (isNaN(n) || n < 1 || n > 999_999) {
+      return res.status(400).json({ error: 'usesRemaining must be a positive integer ≤ 999999 or null (unlimited)' });
+    }
+  }
+  if (expiresInHours !== null && expiresInHours !== undefined) {
+    const n = parseFloat(expiresInHours);
+    if (isNaN(n) || n <= 0 || n > 87_600) { // max 10 years
+      return res.status(400).json({ error: 'expiresInHours must be between 0 and 87600' });
+    }
   }
 
   // Generate KLEIN-XXXX-XXXX format
@@ -1078,9 +1096,21 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
     return;
   }
 
+  // ── Payload size guard — reject blobs that exceed the documented max ─────────
+  if (msg.payload.length > MAX_PAYLOAD_B64) {
+    sendJson(phoneWs, { type: 'error', message: 'Payload too large' });
+    return;
+  }
+
   // ── Per-user queue limit ─────────────────────────────────────────────────────
   if (queueUserId && getUserJobCount(queueUserId) >= MAX_QUEUE_PER_USER) {
     sendJson(phoneWs, { type: 'error', message: 'queue_full' });
+    return;
+  }
+
+  // ── Global queue depth cap — prevents identity-farming floods ─────────────────
+  if (getTotalActiveJobCount() >= MAX_TOTAL_QUEUE_DEPTH) {
+    sendJson(phoneWs, { type: 'error', message: 'Server queue is full — try again later' });
     return;
   }
 

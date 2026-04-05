@@ -102,6 +102,16 @@ export function getUserJobCount(userId) {
   return count;
 }
 
+/** Count all active (pending + processing) jobs across all users. */
+export function getTotalActiveJobCount() {
+  let count = 0;
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (job && (job.status === 'pending' || job.status === 'processing')) count++;
+  }
+  return count;
+}
+
 /** Average job duration in seconds (rolling avg of last 10, default 60s). */
 export function getAvgDurationSec() {
   if (completionDurations.length === 0) return DEFAULT_AVG_DURATION_MS / 1000;
