@@ -120,6 +120,20 @@ export function getRecoverableJobsByUserId(userId) {
   return result;
 }
 
+/** Completed jobs for an owner that can be replayed after reconnect. */
+export function getCompletedJobsByUserId(userId) {
+  const result = [];
+  for (const job of jobs.values()) {
+    if (!job || job.userId !== userId) continue;
+    if (job.status === 'done' && job.encryptedResult != null) {
+      result.push(job);
+    }
+  }
+  // Oldest first keeps replay deterministic if multiple jobs finished while offline.
+  result.sort((a, b) => (a.completedAt ?? a.createdAt) - (b.completedAt ?? b.createdAt));
+  return result;
+}
+
 /** Rebind a job to a newly reconnected owner socket/session. */
 export function reclaimJob(jobId, phoneWs, ownerSessionId) {
   const job = jobs.get(jobId);

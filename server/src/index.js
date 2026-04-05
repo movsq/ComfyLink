@@ -60,6 +60,7 @@ import {
   getJobSnapshot,
   reclaimJob,
   getRecoverableJobsByUserId,
+  getCompletedJobsByUserId,
   getUserJobCount,
   getTotalActiveJobCount,
   getQueueState,
@@ -995,7 +996,11 @@ function handlePcMessage(raw) {
       sendJson(ownerWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
     }
     console.log(`[pc] Job ${msg.jobId} completed.`);
-    deleteJob(msg.jobId);
+    // If nobody is currently connected for this owner, keep the completed job
+    // in memory and replay it on next reconnect.
+    if (ownerSockets.length > 0) {
+      deleteJob(msg.jobId);
+    }
     // Dispatch next
     dispatchNextJob();
     broadcastQueueUpdate();
@@ -1137,6 +1142,13 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload) {
   sendJson(ws, { type: 'queue_update', ...pub, ...own, maxQueuePerUser: MAX_QUEUE_PER_USER });
   if (recovered.length > 0) {
     sendJson(ws, { type: 'job_recovery', jobs: recovered });
+  }
+
+  // Replay completed results that finished while the owner was offline.
+  const completed = getCompletedJobsByUserId(queueUserId);
+  for (const job of completed) {
+    sendJson(ws, { type: 'result', jobId: job.id, payload: job.encryptedResult });
+    deleteJob(job.id);
   }
 
   // ── Periodic re-validation: close socket if user is no longer active ────────
