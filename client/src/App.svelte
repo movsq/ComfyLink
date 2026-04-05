@@ -137,6 +137,13 @@
         console.log(`[app] Ignoring stale result for job ${msg.jobId}`);
         return;
       }
+      if (!entry.aesKey) {
+        // This tab/session does not have the ECDH key material for this job.
+        pendingJobs.delete(msg.jobId);
+        pendingJobs = new Map(pendingJobs);
+        wsError = 'A finished job was recovered, but this tab cannot decrypt it.';
+        return;
+      }
       wsError = '';
       // Append to END of stack (opens behind the currently-viewed result)
       resultStack = [...resultStack, {

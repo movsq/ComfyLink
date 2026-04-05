@@ -28,7 +28,19 @@
   });
 
   $effect(() => {
-    if (!result || !aesKey || _decryptStarted) return;
+    if (!result || _decryptStarted) return;
+    if (!aesKey) {
+      _decryptStarted = true;
+      decrypting = false;
+      decryptError = 'This result cannot be decrypted in this tab/session.';
+      return;
+    }
+    if (!result.payload) {
+      _decryptStarted = true;
+      decrypting = false;
+      decryptError = 'Missing result payload.';
+      return;
+    }
     _decryptStarted = true;
     decrypt();
   });

@@ -987,18 +987,14 @@ function handlePcMessage(raw) {
       return;
     }
     completeJob(msg.jobId, msg.payload);
-    const ownerSockets = [];
-    for (const [ws, meta] of allPhoneSockets) {
-      if (ws.readyState !== 1) continue;
-      if (meta.userId === job.userId) ownerSockets.push(ws);
-    }
-    for (const ownerWs of ownerSockets) {
-      sendJson(ownerWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
+    const deliveredLive = job.phoneWs?.readyState === 1;
+    if (deliveredLive) {
+      sendJson(job.phoneWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
     }
     console.log(`[pc] Job ${msg.jobId} completed.`);
     // If nobody is currently connected for this owner, keep the completed job
     // in memory and replay it on next reconnect.
-    if (ownerSockets.length > 0) {
+    if (deliveredLive) {
       deleteJob(msg.jobId);
     }
     // Dispatch next
@@ -1011,15 +1007,10 @@ function handlePcMessage(raw) {
     const job = getJob(msg.jobId);
     if (job) {
       updateJobStatus(msg.jobId, 'error');
-      const ownerSockets = [];
-      for (const [ws, meta] of allPhoneSockets) {
-        if (ws.readyState !== 1) continue;
-        if (meta.userId === job.userId) ownerSockets.push(ws);
-      }
-      for (const ownerWs of ownerSockets) {
+      if (job.phoneWs?.readyState === 1) {
         // Never forward raw PC error messages to clients — they may contain
         // Python tracebacks, file paths, or library version info.
-        sendJson(ownerWs, { type: 'error', jobId: msg.jobId, message: 'Processing failed' });
+        sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: 'Processing failed' });
       }
       deleteJob(msg.jobId);
     }
@@ -1147,7 +1138,14 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload) {
   // Replay completed results that finished while the owner was offline.
   const completed = getCompletedJobsByUserId(queueUserId);
   for (const job of completed) {
-    sendJson(ws, { type: 'result', jobId: job.id, payload: job.encryptedResult });
+    const payload = Buffer.isBuffer(job.encryptedResult)
+      ? job.encryptedResult.toString('base64')
+      : String(job.encryptedResult ?? '');
+    if (!payload) {
+      deleteJob(job.id);
+      continue;
+    }
+    sendJson(ws, { type: 'result', jobId: job.id, payload });
     deleteJob(job.id);
   }
 
