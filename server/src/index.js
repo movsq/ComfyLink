@@ -38,11 +38,15 @@ import {
   listStoredResults,
   getStoredResultFull,
   deleteStoredResult,
+  countStoredResults,
   getAllUsers,
   updateUserStatus,
   updateUserUses,
   atomicDecrementUserUses,
   updateTosAccepted,
+  recordCodeAuthFailure,
+  getRecentCodeAuthFailureCount,
+  pruneCodeAuthFailures,
 } from './db.js';
 import {
   createJob,
@@ -53,11 +57,20 @@ import {
   getNextPendingJob,
   getActiveJob,
   getUserJobCount,
+  getTotalActiveJobCount,
   getQueueState,
+  getPublicQueueState,
+  getOwnerQueueState,
   deleteJob,
 } from './jobs.js';
 
 const MAX_QUEUE_PER_USER = 3;
+// Global queue depth — prevents many different identities from filling the queue
+const MAX_TOTAL_QUEUE_DEPTH = parseInt(process.env.MAX_TOTAL_QUEUE_DEPTH ?? '50', 10);
+// Maximum encrypted payload size (base64 chars). Two 5 MB images ≈ 13 MB base64;
+// 20 MB gives headroom while blocking obviously over-sized blobs.
+const MAX_PAYLOAD_B64 = 20 * 1024 * 1024;
+const MAX_RESULTS_PER_USER = parseInt(process.env.MAX_RESULTS_PER_USER ?? '500', 10);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -118,22 +131,31 @@ function notifyUserSockets(userId, usesRemaining) {
 
 // ── Queue broadcast ──────────────────────────────────────────────────────────
 // All connected phone sockets (for queue_update broadcasts)
-const allPhoneSockets = new Map(); // Map<WebSocket, { userId: string|null }>
+const allPhoneSockets = new Map(); // Map<WebSocket, { userId: string|null, sessionId: string|null }>
 
-function registerPhoneSocket(ws, userId) {
-  allPhoneSockets.set(ws, { userId });
+function registerPhoneSocket(ws, userId, sessionId) {
+  allPhoneSockets.set(ws, { userId, sessionId });
 }
 
 function unregisterPhoneSocket(ws) {
   allPhoneSockets.delete(ws);
 }
 
-/** Broadcast queue_update to all connected phone sockets. */
+/** Broadcast queue_update to all connected phone sockets.
+ *  Non-owners receive only aggregate data (no job IDs).
+ *  The owner receives per-job detail for their own jobs.
+ */
 function broadcastQueueUpdate() {
+  const pub = getPublicQueueState();
   for (const [ws, meta] of allPhoneSockets) {
     if (ws.readyState !== 1) continue;
-    const state = getQueueState(meta.userId);
-    sendJson(ws, { type: 'queue_update', ...state, maxQueuePerUser: MAX_QUEUE_PER_USER });
+    if (meta.sessionId) {
+      // Send private detail (own jobs) merged with public summary
+      const own = getOwnerQueueState(meta.sessionId);
+      sendJson(ws, { type: 'queue_update', ...pub, ...own, maxQueuePerUser: MAX_QUEUE_PER_USER });
+    } else {
+      sendJson(ws, { type: 'queue_update', ...pub, maxQueuePerUser: MAX_QUEUE_PER_USER });
+    }
   }
 }
 
@@ -157,13 +179,19 @@ function sendJson(ws, obj) {
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express();
 
-// Trust the Caddy reverse proxy so req.ip is the real client IP, not the
-// container IP. Without this, all users share one rate-limit bucket.
-app.set('trust proxy', 1);
+// Trust a reverse proxy (Caddy/nginx) so req.ip is the real client IP, not the
+// container IP. Only enabled when BEHIND_PROXY=true — without a proxy, trusting
+// X-Forwarded-For lets clients forge their IP to bypass rate limiting.
+if (process.env.BEHIND_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : undefined; // undefined = allow all in dev
+if (!allowedOrigins && process.env.DEPLOY_MODE === 'remote') {
+  console.warn('[security] WARNING: ALLOWED_ORIGINS is not set in remote mode — CORS allows all origins.');
+}
 app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(express.json({ limit: '20mb' }));
 
@@ -307,6 +335,18 @@ app.post('/codes', requireAdmin, (req, res) => {
   if (!['registration', 'job_access'].includes(type)) {
     return res.status(400).json({ error: 'Invalid type' });
   }
+  if (usesRemaining !== null && usesRemaining !== undefined) {
+    const n = parseInt(usesRemaining, 10);
+    if (isNaN(n) || n < 1 || n > 999_999) {
+      return res.status(400).json({ error: 'usesRemaining must be a positive integer ≤ 999999 or null (unlimited)' });
+    }
+  }
+  if (expiresInHours !== null && expiresInHours !== undefined) {
+    const n = parseFloat(expiresInHours);
+    if (isNaN(n) || n <= 0 || n > 87_600) { // max 10 years
+      return res.status(400).json({ error: 'expiresInHours must be between 0 and 87600' });
+    }
+  }
 
   // Generate KLEIN-XXXX-XXXX format
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 to avoid confusion
@@ -448,10 +488,23 @@ app.post('/vault/unlock', requireActive, (req, res) => {
 });
 
 /** POST /vault/rekey — re-wrap master key with new wrapping keys */
-app.post('/vault/rekey', requireActive, (req, res) => {
+app.post('/vault/rekey', requireActive, async (req, res) => {
   const userId = req.user.userId;
   const existing = getVaultByUser(userId);
   if (!existing) return res.status(404).json({ error: 'No vault configured' });
+
+  // ── Step-up auth: require a fresh Google ID token to prove identity ────────
+  const { idToken } = req.body ?? {};
+  if (!idToken) return res.status(400).json({ error: 'Re-authentication required (idToken)' });
+  try {
+    const googleUser = await verifyGoogleToken(idToken);
+    const user = getUserById(userId);
+    if (!user || user.google_sub !== googleUser.sub) {
+      return res.status(403).json({ error: 'Re-authentication failed' });
+    }
+  } catch {
+    return res.status(401).json({ error: 'Invalid Google token' });
+  }
 
   const {
     encryptedMasterKeyBio, encryptedMasterKeyPw, encryptedMasterKeyRecovery,
@@ -472,9 +525,22 @@ app.post('/vault/rekey', requireActive, (req, res) => {
 });
 
 /** DELETE /vault — permanently delete vault + all encrypted results */
-app.delete('/vault', requireActive, (req, res) => {
+app.delete('/vault', requireActive, async (req, res) => {
   const vault = getVaultByUser(req.user.userId);
   if (!vault) return res.status(404).json({ error: 'No vault configured' });
+
+  // ── Step-up auth: require a fresh Google ID token to prove identity ────────
+  const { idToken } = req.body ?? {};
+  if (!idToken) return res.status(400).json({ error: 'Re-authentication required (idToken)' });
+  try {
+    const googleUser = await verifyGoogleToken(idToken);
+    const user = getUserById(req.user.userId);
+    if (!user || user.google_sub !== googleUser.sub) {
+      return res.status(403).json({ error: 'Re-authentication failed' });
+    }
+  } catch {
+    return res.status(401).json({ error: 'Invalid Google token' });
+  }
 
   deleteVault(req.user.userId);
   res.json({ ok: true });
@@ -488,6 +554,11 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
 
   if (!encryptedThumb || !encryptedFull || !ivThumb || !ivFull) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // ── Per-user storage quota ──────────────────────────────────────────────────
+  if (countStoredResults(req.user.userId) >= MAX_RESULTS_PER_USER) {
+    return res.status(429).json({ error: `Storage limit reached (max ${MAX_RESULTS_PER_USER} results)` });
   }
 
   if (typeof encryptedFull !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(encryptedFull)) {
@@ -570,8 +641,17 @@ app.post('/auth/code', (req, res) => {
     return res.status(400).json({ error: 'code required' });
   }
 
+  // Global brute-force guard: if the system has seen ≥100 failures in the last
+  // 60 s across all IPs, stop accepting guesses entirely.
+  const CODE_BF_WINDOW_MS = 60_000;
+  const CODE_BF_MAX = 100;
+  if (getRecentCodeAuthFailureCount(CODE_BF_WINDOW_MS) >= CODE_BF_MAX) {
+    return res.status(429).json({ error: 'Too many failed attempts — try again later' });
+  }
+
   const row = validateInviteCode(code.trim().toUpperCase(), 'job_access');
   if (!row) {
+    recordCodeAuthFailure();
     return res.status(400).json({ error: 'Invalid or expired access code' });
   }
 
@@ -679,7 +759,50 @@ const heartbeatTimer = setInterval(() => {
 }, PING_INTERVAL_MS);
 server.on('close', () => clearInterval(heartbeatTimer));
 
+// ── WS upgrade rate limiter ────────────────────────────────────────────────
+// Tracks connection attempts per IP to prevent unauthenticated connection
+// flooding (especially /ws/pc which holds sockets for 10 s before auth timeout).
+const WS_RATE_WINDOW_MS = 60_000;
+const WS_RATE_MAX = 20; // max upgrade attempts per IP per window
+const wsUpgradeTracker = new Map(); // Map<ip, { count, resetAt }>
+
+// Prune stale entries from the WS upgrade tracker every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of wsUpgradeTracker) {
+    if (now >= entry.resetAt) wsUpgradeTracker.delete(ip);
+  }
+}, 5 * 60_000);
+
+// Prune code_auth_failures older than 5 minutes every 5 minutes
+setInterval(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
+
+function getUpgradeIp(req) {
+  // When behind a reverse proxy, trust the first X-Forwarded-For hop.
+  // Otherwise use the raw socket address (matches trust proxy conditional below).
+  if (process.env.BEHIND_PROXY === 'true') {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress;
+}
+
 server.on('upgrade', async (req, socket, head) => {
+  // ── Per-IP rate limit for WS upgrades ───────────────────────────────────
+  const ip = getUpgradeIp(req);
+  const now = Date.now();
+  let entry = wsUpgradeTracker.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + WS_RATE_WINDOW_MS };
+    wsUpgradeTracker.set(ip, entry);
+  }
+  entry.count++;
+  if (entry.count > WS_RATE_MAX) {
+    socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === '/ws/admin') {
@@ -706,25 +829,9 @@ server.on('upgrade', async (req, socket, head) => {
   }
 
   if (url.pathname === '/ws/phone') {
-    const token = url.searchParams.get('token');
-    const payload = verifyJwt(token);
-    if (!payload) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    // Code users can connect too
-    if (payload.type === 'code_user') {
-      wss.handleUpgrade(req, socket, head, (ws) => handlePhoneSocket(ws, payload));
-      return;
-    }
-    const user = getUserById(payload.userId);
-    if (!user || user.status !== 'active') {
-      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => handlePhoneSocket(ws, payload));
+    // Auth is performed via the first WebSocket message (type: 'auth', token: '...'),
+    // NOT via a URL query parameter, so JWTs are never written to proxy access logs.
+    wss.handleUpgrade(req, socket, head, (ws) => handlePhoneSocket(ws));
     return;
   }
 
@@ -741,7 +848,7 @@ async function handlePcSocket(ws) {
   const authTimeout = setTimeout(() => {
     console.warn('[pc] Auth timed out.');
     ws.close(4001, 'Auth timeout');
-  }, 10_000);
+  }, 3_000);
 
   ws.once('message', async (raw) => {
     clearTimeout(authTimeout);
@@ -807,17 +914,14 @@ function handlePcMessage(raw) {
     const max   = Number(msg.max);
     if (!Number.isFinite(value) || !Number.isFinite(max) || value < 0 || max < 0) return;
     const job = getJob(msg.jobId);
-    // Broadcast value/max to all phone clients (drives the progress bar for everyone).
-    // node is internal ComfyUI telemetry — send it only to the job owner.
-    const broadcastPayload = { type: 'progress', jobId: msg.jobId, value, max };
+    // Owner socket gets full detail (jobId + node) to drive its specific progress bar.
+    // All other sockets receive only value/max — enough to show a generic activity
+    // indicator without exposing the foreign job identifier.
+    const ownerPayload  = { type: 'progress', jobId: msg.jobId, value, max, node: msg.node ?? null };
+    const publicPayload = { type: 'progress', value, max };
     for (const [ws] of allPhoneSockets) {
       if (ws.readyState !== 1) continue;
-      if (ws === job?.phoneWs) {
-        // Job owner gets the full payload including node
-        sendJson(ws, { ...broadcastPayload, node: msg.node ?? null });
-      } else {
-        sendJson(ws, broadcastPayload);
-      }
+      sendJson(ws, ws === job?.phoneWs ? ownerPayload : publicPayload);
     }
     return;
   }
@@ -852,10 +956,13 @@ function handlePcMessage(raw) {
     if (job) {
       updateJobStatus(msg.jobId, 'error');
       if (job.phoneWs?.readyState === 1) {
-        sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: msg.message });
+        // Never forward raw PC error messages to clients — they may contain
+        // Python tracebacks, file paths, or library version info.
+        sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: 'Processing failed' });
       }
       deleteJob(msg.jobId);
     }
+    // Full error detail is logged server-side only
     console.warn(`[pc] Error for job ${msg.jobId}: ${msg.message}`);
     // Dispatch next job after error
     dispatchNextJob();
@@ -867,18 +974,82 @@ function handlePcMessage(raw) {
 }
 
 // ── Phone socket handler ──────────────────────────────────────────────────────
-function handlePhoneSocket(ws, jwtPayload) {
-  console.log(`[phone] Connected (${jwtPayload.type === 'code_user' ? 'code' : 'google'}).`);
+function handlePhoneSocket(ws) {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
-  // Derive a stable userId for queue tracking
+  // Require { type: 'auth', token } as the first message within 2 s.
+  // This keeps JWTs out of URL query strings (and therefore out of proxy logs).
+  const PHONE_AUTH_TIMEOUT_MS = 2_000;
+  const authTimeout = setTimeout(() => {
+    ws.close(4001, 'Auth timeout');
+  }, PHONE_AUTH_TIMEOUT_MS);
+
+  ws.once('message', (raw) => {
+    clearTimeout(authTimeout);
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch {
+      ws.close(4002, 'Invalid auth message');
+      return;
+    }
+    if (msg.type !== 'auth' || typeof msg.token !== 'string') {
+      ws.close(4002, 'Expected auth message');
+      return;
+    }
+
+    const payload = verifyJwt(msg.token);
+    if (!payload) {
+      sendJson(ws, { type: 'auth_failed', reason: 'invalid_token' });
+      ws.close(4003, 'Invalid token');
+      return;
+    }
+
+    if (payload.type === 'code_user') {
+      // Re-check DB state (mirrors requireActiveOrCode behaviour)
+      const code = findInviteCodeById(payload.codeId);
+      if (!code) {
+        sendJson(ws, { type: 'auth_failed', reason: 'code_not_found' });
+        ws.close(4003, 'Access code not found');
+        return;
+      }
+      if (code.expires_at !== null && Date.now() > code.expires_at) {
+        sendJson(ws, { type: 'auth_failed', reason: 'code_expired' });
+        ws.close(4003, 'Access code expired');
+        return;
+      }
+      if (code.uses_remaining !== null && code.uses_remaining <= 0) {
+        sendJson(ws, { type: 'auth_failed', reason: 'code_exhausted' });
+        ws.close(4003, 'Access code exhausted');
+        return;
+      }
+    } else {
+      const user = getUserById(payload.userId);
+      if (!user || user.status !== 'active') {
+        sendJson(ws, { type: 'auth_failed', reason: 'account_not_active' });
+        ws.close(4003, 'Account not active');
+        return;
+      }
+    }
+
+    sendJson(ws, { type: 'auth_ok' });
+    handlePhoneSocketAuthenticated(ws, payload);
+  });
+}
+
+function handlePhoneSocketAuthenticated(ws, jwtPayload) {
+  console.log(`[phone] Connected (${jwtPayload.type === 'code_user' ? 'code' : 'google'}).`);
+
+  // Stable userId for quota accounting (shared per code)
   const queueUserId = jwtPayload.type === 'code_user'
     ? `code:${jwtPayload.codeId}`
     : `user:${jwtPayload.userId}`;
 
+  // Per-connection session ID: used to scope cancel authorization so one
+  // code-user cannot cancel another code-user's job sharing the same codeId.
+  const wsSessionId = uuidv4();
+
   // Register in all tracking maps
-  registerPhoneSocket(ws, queueUserId);
+  registerPhoneSocket(ws, queueUserId, wsSessionId);
 
   if (jwtPayload.type === 'code_user') {
     registerCodeSocket(jwtPayload.codeId, ws);
@@ -893,8 +1064,28 @@ function handlePhoneSocket(ws, jwtPayload) {
   }
 
   // Send initial queue state
-  const initialState = getQueueState(queueUserId);
-  sendJson(ws, { type: 'queue_update', ...initialState, maxQueuePerUser: MAX_QUEUE_PER_USER });
+  const pub = getPublicQueueState();
+  const own = getOwnerQueueState(wsSessionId);
+  sendJson(ws, { type: 'queue_update', ...pub, ...own, maxQueuePerUser: MAX_QUEUE_PER_USER });
+
+  // ── Periodic re-validation: close socket if user is no longer active ────────
+  const WS_REVALIDATE_MS = 5 * 60_000; // 5 minutes
+  const revalidateTimer = setInterval(() => {
+    if (jwtPayload.type === 'code_user') {
+      const code = findInviteCodeById(jwtPayload.codeId);
+      if (!code || (code.uses_remaining !== null && code.uses_remaining <= 0) ||
+          (code.expires_at !== null && Date.now() > code.expires_at)) {
+        sendJson(ws, { type: 'error', message: 'access_code_expired' });
+        ws.close(4003, 'Access code expired');
+      }
+    } else if (jwtPayload.userId) {
+      const user = getUserById(jwtPayload.userId);
+      if (!user || user.status !== 'active') {
+        sendJson(ws, { type: 'error', message: 'account_suspended' });
+        ws.close(4003, 'Account no longer active');
+      }
+    }
+  }, WS_REVALIDATE_MS);
 
   // ── Per-socket submit rate limiter (max 10 submits / 60 s sliding window) ────
   const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -926,12 +1117,14 @@ function handlePhoneSocket(ws, jwtPayload) {
         return;
       }
       submitTimestamps.push(now);
-      handleJobSubmit(ws, msg, jwtPayload, queueUserId);
+      handleJobSubmit(ws, msg, jwtPayload, queueUserId, wsSessionId);
     } else if (msg.type === 'cancel') {
       // Validate jobId length to prevent oversized strings probing internal state
       if (typeof msg.jobId === 'string' && msg.jobId && msg.jobId.length <= 64) {
         const job = getJob(msg.jobId);
-        if (job && job.userId === queueUserId) {
+        // Authorize by per-WS session ID, not by shared queueUserId, to prevent
+        // one code-user from cancelling another user's job on the same code.
+        if (job && job.ownerSessionId === wsSessionId) {
           const wasProcessing = job.status === 'processing';
           if (wasProcessing) {
             updateJobStatus(msg.jobId, 'cancelled');
@@ -955,6 +1148,7 @@ function handlePhoneSocket(ws, jwtPayload) {
   });
 
   ws.on('close', () => {
+    clearInterval(revalidateTimer);
     unregisterPhoneSocket(ws);
     if (jwtPayload.type === 'code_user') {
       unregisterCodeSocket(jwtPayload.codeId, ws);
@@ -965,7 +1159,7 @@ function handlePhoneSocket(ws, jwtPayload) {
   });
 }
 
-function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
+function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null, wsSessionId = null) {
   if (!pcSocket || pcSocket.readyState !== 1) {
     sendJson(phoneWs, { type: 'no_pc' });
     return;
@@ -976,9 +1170,21 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
     return;
   }
 
+  // ── Payload size guard — reject blobs that exceed the documented max ─────────
+  if (msg.payload.length > MAX_PAYLOAD_B64) {
+    sendJson(phoneWs, { type: 'error', message: 'Payload too large' });
+    return;
+  }
+
   // ── Per-user queue limit ─────────────────────────────────────────────────────
   if (queueUserId && getUserJobCount(queueUserId) >= MAX_QUEUE_PER_USER) {
     sendJson(phoneWs, { type: 'error', message: 'queue_full' });
+    return;
+  }
+
+  // ── Global queue depth cap — prevents identity-farming floods ─────────────────
+  if (getTotalActiveJobCount() >= MAX_TOTAL_QUEUE_DEPTH) {
+    sendJson(phoneWs, { type: 'error', message: 'Server queue is full — try again later' });
     return;
   }
 
@@ -997,6 +1203,11 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
     const userRow = getUserById(jwtPayload.userId);
     if (!userRow) {
       sendJson(phoneWs, { type: 'error', message: 'User not found' });
+      return;
+    }
+    // ── Suspended check — catches users suspended while their WS was open ─────
+    if (userRow.status !== 'active') {
+      sendJson(phoneWs, { type: 'error', message: 'account_suspended' });
       return;
     }
     // ── Terms of Service gate ──────────────────────────────────────────────────
@@ -1042,7 +1253,7 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null) {
   }
 
   const jobId = uuidv4();
-  createJob(jobId, phoneWs, queueUserId, msg.payload);
+  createJob(jobId, phoneWs, queueUserId, wsSessionId, msg.payload);
   sendJson(phoneWs, { type: 'queued', jobId });
   console.log(`[queue] Job ${jobId} added to queue.`);
 
@@ -1062,7 +1273,16 @@ function handleAdminSocket(ws, userId) {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
+  // ── Periodic re-validation: close if admin is suspended or demoted ────────
+  const revalidateTimer = setInterval(() => {
+    const user = getUserById(userId);
+    if (!user || user.status !== 'active' || !user.is_admin) {
+      ws.close(4003, 'No longer admin');
+    }
+  }, 5 * 60_000);
+
   ws.on('close', () => {
+    clearInterval(revalidateTimer);
     adminSockets.delete(ws);
     console.log(`[admin-ws] Disconnected (user ${userId}).`);
   });

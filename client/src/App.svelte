@@ -58,6 +58,42 @@
   // Derived
   let isGoogleUser = $derived(user?.type === 'google' || (user && !user.type));
 
+  // ── Cross-tab coordination ─────────────────────────────────────────────────
+  // Lets sibling tabs know a job was submitted / completed so their queue UI
+  // stays coherent. AES keys are deliberately NOT shared — they remain in the
+  // tab that performed the ECDH exchange. Results will only arrive on the WS
+  // that submitted the job, so decryption is always handled in the correct tab.
+  let tabChannel = null;
+
+  function initTabChannel() {
+    if (typeof BroadcastChannel === 'undefined') return;
+    tabChannel = new BroadcastChannel('klein_jobs');
+    tabChannel.onmessage = ({ data }) => {
+      if (!data?.type) return;
+      if (data.type === 'job_pending') {
+        // Another tab submitted a job — reflect it in pendingJobs without an aesKey
+        // so the cancel button / queue display shows the right count.
+        if (!pendingJobs.has(data.jobId)) {
+          pendingJobs.set(data.jobId, { aesKey: null, promptText: data.promptText ?? '' });
+          pendingJobs = new Map(pendingJobs);
+        }
+      } else if (data.type === 'job_done') {
+        // Another tab's job finished — remove from our pending display.
+        if (pendingJobs.has(data.jobId)) {
+          pendingJobs.delete(data.jobId);
+          pendingJobs = new Map(pendingJobs);
+        }
+      }
+    };
+  }
+
+  function closeTabChannel() {
+    tabChannel?.close();
+    tabChannel = null;
+  }
+
+  onDestroy(() => closeTabChannel());
+
   // Tick clockNow every second for dismissed-card countdown
   $effect(() => {
     const id = setInterval(() => { clockNow = Date.now(); }, 1000);
@@ -81,6 +117,10 @@
       }
 
       ws = createPhoneWS(token);
+
+      // Open cross-tab channel for job state sync
+      closeTabChannel();
+      initTabChannel();
 
     ws.on('queued', ({ jobId }) => {
       wsError = ''; // server accepted the job — dismiss any stale error banner
@@ -106,6 +146,8 @@
       // Remove from pending
       pendingJobs.delete(msg.jobId);
       pendingJobs = new Map(pendingJobs); // trigger reactivity
+      // Notify sibling tabs so they can remove this job from their display
+      tabChannel?.postMessage({ type: 'job_done', jobId: msg.jobId });
     });
 
     ws.on('error', ({ message, jobId }) => {
@@ -139,7 +181,14 @@
     });
 
     ws.on('queue_update', (msg) => {
-      queueState = { queue: msg.queue, activeJobId: msg.activeJobId, avgDuration: msg.avgDuration };
+      // The server sends per-job detail (queue, activeJobId) only to the owner socket.
+      // Non-owner sockets receive aggregate-only data (queueSize, avgDuration).
+      queueState = {
+        queue: msg.queue ?? [],
+        activeJobId: msg.activeJobId ?? null,
+        avgDuration: msg.avgDuration ?? 60,
+        queueSize: msg.queueSize ?? (msg.queue?.length ?? 0),
+      };
     });
 
     ws.on('code_refreshed', () => {
@@ -263,10 +312,38 @@
     showVaultSettings = true;
   }
 
+  /** Request a fresh Google ID token for step-up auth (vault rekey/delete). */
+  function requestFreshGoogleToken() {
+    return new Promise((resolve, reject) => {
+      if (typeof google === 'undefined' || !google.accounts) {
+        reject(new Error('Google Sign-In not available'));
+        return;
+      }
+      google.accounts.id.initialize({
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          if (response.credential) {
+            resolve(response.credential);
+          } else {
+            reject(new Error('Re-authentication cancelled'));
+          }
+        },
+        auto_select: false,
+      });
+      google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          reject(new Error('Please sign in with Google again to confirm this action'));
+        }
+      });
+    });
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   function handleJobSubmitted({ aesKey, jobId, promptText, preview1, preview2 }) {
     pendingJobs.set(jobId, { aesKey, promptText, preview1, preview2 });
     pendingJobs = new Map(pendingJobs); // trigger reactivity
+    // Notify sibling tabs (no aesKey — it stays in this tab only)
+    tabChannel?.postMessage({ type: 'job_pending', jobId, promptText });
   }
 
   function handleJobCancelled({ jobId }) {
@@ -405,6 +482,7 @@
       {vaultInfo}
       {masterKey}
       userEmail={user?.email ?? ''}
+      {requestFreshGoogleToken}
       onClose={() => showVaultSettings = false}
       onUpdated={() => { showVaultSettings = false; checkVault(); }}
       onRequestUnlock={() => { showVaultSettings = false; pendingVaultAction = () => { showVaultSettings = true; }; requestVaultUnlock(); }}

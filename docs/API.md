@@ -48,20 +48,26 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 
 ---
 
-## WebSocket: Phone ↔ Server (`/ws/phone?token=<jwt>`)
+## WebSocket: Phone ↔ Server (`/ws/phone`)
+
+Authentication uses a **first-message handshake** — the JWT is never sent in the URL query string (which would expose it to proxy access logs).  The server closes unauthenticated sockets after **2 seconds**.
 
 | Direction | Message |
 |-----------|---------|
+| Phone → Server | `{ type: "auth", token: "<jwt>" }` — **must be the very first message** |
+| Server → Phone | `{ type: "auth_ok" }` — connection accepted; all subsequent messages are processed |
+| Server → Phone | `{ type: "auth_failed", reason: "..." }` — followed immediately by close |
 | Phone → Server | `{ type: "submit", payload: "<b64>" }` |
 | Server → Phone | `{ type: "queued", jobId: "..." }` |
-| Server → Phone | `{ type: "queue_update", queue: [...], activeJobId, avgDuration }` — broadcast on every queue change |
+| Server → Phone | `{ type: "queue_update", queueSize, avgDuration, maxQueuePerUser, queue?: [...], activeJobId?: "..." }` — broadcast on every queue change; `queue` and `activeJobId` are included only for the socket that owns those jobs; all other sockets receive aggregate counts only |
 | Server → Phone | `{ type: "no_pc" }` — PC not connected |
-| Server → Phone | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` |
-| Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>" }` |
+| Server → Phone | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` — sent only to the job-owner socket |
+| Server → Phone | `{ type: "progress", value: N, max: M }` — sent to all other connected sockets (no job identifier) |
+| Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>" }` — sent only to the job-owner socket |
 | Server → Phone | `{ type: "error", jobId: "...", message: "..." }` |
 | Server → Phone | `{ type: "error", message: "queue_full" }` — user already has 3 jobs queued |
-| Phone → Server | `{ type: "cancel", jobId: "..." }` |
-| Server → Phone | `{ type: "code_status", usesRemaining: N }` — code_user sessions only |
+| Phone → Server | `{ type: "cancel", jobId: "..." }` — only succeeds for jobs owned by this session |
+| Server → Phone | `{ type: "code_status", usesRemaining: N\|null }` — code_user sessions only |
 | Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — Google user quota changed |
 | Phone → Server | `{ type: "ping" }` — application-level keepalive (sent every 20 s) |
 | Server → Phone | `{ type: "pong" }` — keepalive reply |

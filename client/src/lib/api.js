@@ -144,10 +144,11 @@ export async function rekeyVault(token, data) {
   return res.json();
 }
 
-export async function deleteVault(token) {
+export async function deleteVault(token, idToken) {
   const res = await fetch('/vault', {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ idToken }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -35,20 +35,20 @@ export function createPhoneWS(token) {
 
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${protocol}://${location.host}/ws/phone?token=${encodeURIComponent(token)}`;
+    // Token is sent as the first WebSocket message (type: 'auth'), NOT in the URL,
+    // so it is never written to proxy access logs.
+    const url = `${protocol}://${location.host}/ws/phone`;
     socket = new WebSocket(url);
 
     socket.addEventListener('open', () => {
-      failedAttempts = 0;
-      emit('open', null);
-      // Application-level keepalive — fires every 20 s to keep idle connections
-      // alive through NAT/firewall/proxy idle timeouts.
-      pingTimer = setInterval(() => {
-        if (socket?.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 20_000);
+      // Send auth token as first message before starting keepalive
+      socket.send(JSON.stringify({ type: 'auth', token }));
     });
+
+    // The server will respond with { type: 'auth_ok' } on success or
+    // { type: 'auth_failed' } followed by a close on failure.
+    // Only emit 'open' once auth is confirmed.
+    let authenticated = false;
 
     socket.addEventListener('message', (event) => {
       let msg;
@@ -58,6 +58,28 @@ export function createPhoneWS(token) {
         console.warn('[ws] Non-JSON message from server, ignoring.');
         return;
       }
+
+      if (!authenticated) {
+        if (msg.type === 'auth_ok') {
+          authenticated = true;
+          failedAttempts = 0;
+          emit('open', null);
+          // Application-level keepalive — fires every 20 s to keep idle connections
+          // alive through NAT/firewall/proxy idle timeouts.
+          pingTimer = setInterval(() => {
+            if (socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            }
+          }, 20_000);
+        } else if (msg.type === 'auth_failed') {
+          console.warn('[ws] Auth rejected by server:', msg.reason);
+          closed = true; // don't reconnect on auth failure
+          emit('reconnect_failed', { reason: msg.reason ?? 'auth_failed' });
+          socket.close();
+        }
+        return;
+      }
+
       emit(msg.type, msg);
     });
 

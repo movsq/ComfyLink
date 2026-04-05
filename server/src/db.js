@@ -87,6 +87,18 @@ if (db.pragma('user_version', { simple: true }) < 2) {
   db.pragma('user_version = 2');
 }
 
+if (db.pragma('user_version', { simple: true }) < 3) {
+  // v3: global code-auth failure log for brute-force protection
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS code_auth_failures (
+      attempted_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_code_auth_failures_at
+      ON code_auth_failures(attempted_at);
+  `);
+  db.pragma('user_version = 3');
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -201,6 +213,10 @@ const stmtDeleteAllResultsByUser = db.prepare(
   'DELETE FROM stored_results WHERE user_id = ?',
 );
 
+const stmtCountResultsByUser = db.prepare(
+  'SELECT COUNT(*) AS cnt FROM stored_results WHERE user_id = ?',
+);
+
 const stmtDeleteVault = db.prepare(
   'DELETE FROM vault_keys WHERE user_id = ?',
 );
@@ -211,6 +227,17 @@ const stmtGetAllUsers = db.prepare(
 
 const stmtGetUsersByStatus = db.prepare(
   'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, created_at, updated_at FROM users WHERE status = ? ORDER BY created_at DESC',
+);
+
+// Global code auth failure tracking (brute-force protection)
+const stmtInsertAuthFailure = db.prepare(
+  'INSERT INTO code_auth_failures (attempted_at) VALUES (?)',
+);
+const stmtCountRecentAuthFailures = db.prepare(
+  'SELECT COUNT(*) AS cnt FROM code_auth_failures WHERE attempted_at >= ?',
+);
+const stmtPruneOldAuthFailures = db.prepare(
+  'DELETE FROM code_auth_failures WHERE attempted_at < ?',
 );
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -392,6 +419,10 @@ export function deleteStoredResult(id, userId) {
   return stmtDeleteResult.run(id, userId);
 }
 
+export function countStoredResults(userId) {
+  return stmtCountResultsByUser.get(userId)?.cnt ?? 0;
+}
+
 // Admin: user management
 
 export function getAllUsers(status = null) {
@@ -399,6 +430,30 @@ export function getAllUsers(status = null) {
     return stmtGetUsersByStatus.all(status);
   }
   return stmtGetAllUsers.all();
+}
+
+// Global code-auth brute-force tracking
+
+/**
+ * Record a failed invite-code auth attempt.
+ * Call this whenever a code_auth or /auth/code request fails validation.
+ */
+export function recordCodeAuthFailure() {
+  stmtInsertAuthFailure.run(Date.now());
+}
+
+/**
+ * Count global failed code-auth attempts within the given window (ms).
+ */
+export function getRecentCodeAuthFailureCount(windowMs) {
+  return stmtCountRecentAuthFailures.get(Date.now() - windowMs)?.cnt ?? 0;
+}
+
+/**
+ * Prune failure records older than maxAgeMs to keep the table small.
+ */
+export function pruneCodeAuthFailures(maxAgeMs) {
+  return stmtPruneOldAuthFailures.run(Date.now() - maxAgeMs);
 }
 
 export default db;

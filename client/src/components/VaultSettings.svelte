@@ -9,7 +9,7 @@
     checkWebAuthnSupport, checkPlatformAuthenticator, registerCredential,
   } from '../lib/webauthn.js';
 
-  let { token, vaultInfo, masterKey = null, userEmail = '', onClose, onUpdated, onRequestUnlock = () => {}, onVaultReset = () => {} } = $props();
+  let { token, vaultInfo, masterKey = null, userEmail = '', onClose, onUpdated, onRequestUnlock = () => {}, onVaultReset = () => {}, requestFreshGoogleToken = null } = $props();
 
   let mode = $state('main'); // 'main' | 'recovery' | 'reset_confirm'
   let loading = $state(false);
@@ -69,11 +69,18 @@
       const bioWrappingKey = await deriveKeyFromPRF(reg.prfOutput, prfSalt);
       const wrappedBio = await wrapMasterKey(masterKey, bioWrappingKey);
 
+      // Step-up auth: get a fresh Google token to confirm identity
+      let idToken;
+      if (requestFreshGoogleToken) {
+        idToken = await requestFreshGoogleToken();
+      }
+
       // Update vault with new bio blob
       await rekeyVault(token, {
         encryptedMasterKeyBio: bufToB64(wrappedBio),
         prfCredentialId: reg.credentialId,
         prfPublicKey: reg.publicKey,
+        idToken,
       });
 
       success = 'Biometric added successfully';
@@ -128,7 +135,12 @@
     loading = true;
     error = '';
     try {
-      await deleteVault(token);
+      // Step-up auth: get a fresh Google token to confirm identity
+      let idToken;
+      if (requestFreshGoogleToken) {
+        idToken = await requestFreshGoogleToken();
+      }
+      await deleteVault(token, idToken);
       onVaultReset();
     } catch (err) {
       error = err.message || 'Vault reset failed';

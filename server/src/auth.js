@@ -1,7 +1,7 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import { timingSafeEqual } from 'crypto';
-import { getUserById } from './db.js';
+import { getUserById, findInviteCodeById } from './db.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -147,6 +147,15 @@ export function requireActiveOrCode(req, res, next) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   if (payload.type === 'code_user') {
+    // Re-check the DB so revoked/expired/exhausted codes are rejected immediately.
+    const code = findInviteCodeById(payload.codeId);
+    if (!code) return res.status(403).json({ error: 'Access code not found' });
+    if (code.expires_at !== null && Date.now() > code.expires_at) {
+      return res.status(403).json({ error: 'Access code expired' });
+    }
+    if (code.uses_remaining !== null && code.uses_remaining <= 0) {
+      return res.status(403).json({ error: 'Access code has no remaining uses' });
+    }
     req.user = payload;
     return next();
   }

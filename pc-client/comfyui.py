@@ -37,6 +37,19 @@ log = logging.getLogger(__name__)
 _TEMPLATE_PATH = Path(__file__).parent / "workflow_template.json"
 _WORKFLOW_TEMPLATE: dict = json.loads(_TEMPLATE_PATH.read_text())
 
+# ── Security: allowed values for user-supplied model/sampler fields ────────────
+# Reject anything not in these sets to prevent path traversal or injection.
+_ALLOWED_SAMPLERS = {"euler", "res_multistep", "heun"}
+
+def _validate_model_filename(name: str | None, label: str) -> None:
+    """Reject model filenames that contain path separators or traversal sequences."""
+    if name is None:
+        return
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"Invalid {label}: must be a non-empty string")
+    if ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid {label}: path traversal not allowed")
+
 
 async def interrupt_comfyui() -> None:
     """Send an interrupt request to ComfyUI to cancel the current generation."""
@@ -169,7 +182,7 @@ def _detect_extension(image_bytes: bytes) -> str:
         return ".png"
     if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
         return ".webp"
-    return ".png"  # safe fallback — PIL will handle it
+    raise ValueError("Unrecognised image format: only JPEG, PNG, and WebP are accepted")
 
 
 # ── ComfyUI API communication ──────────────────────────────────────────────────
@@ -197,6 +210,13 @@ async def process_job(
       4. GET /view?filename=...  →  raw image bytes
     """
     client_id = str(uuid.uuid4())
+
+    # ── Validate user-supplied fields before touching workflow / ComfyUI ──────
+    if sampler not in _ALLOWED_SAMPLERS:
+        raise ValueError(f"Invalid sampler: {sampler!r}")
+    _validate_model_filename(gguf_name, "gguf_name")
+    _validate_model_filename(clip_model, "clip_model")
+    _validate_model_filename(lora, "lora")
 
     parsed = urlparse(COMFYUI_URL)
     ws_scheme = "wss" if parsed.scheme == "https" else "ws"

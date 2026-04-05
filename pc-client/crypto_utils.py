@@ -36,6 +36,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from config import PRIVATE_KEY_PATH, PUBLIC_KEY_PATH
 
+MAX_PROMPT_LEN = 4_000  # characters; enforces the same limit as the client textarea
+
 
 # ── Keypair loading ────────────────────────────────────────────────────────────
 
@@ -153,14 +155,17 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
         "prompt":       data["prompt"],
         "image1":       _decode_image("image1"),
         "image2":       _decode_image("image2"),
-        "seed":         int(data.get("seed", 0)),
+        "seed":         max(0, min(2**53 - 1, int(data.get("seed", 0)))),
         "steps":        max(1, min(8, int(data.get("steps", 4)))),
         "sampler":      data.get("sampler", "euler"),
         "lora":         data.get("lora"),
-        "loraStrength": float(data.get("loraStrength", 1.0)),
+        "loraStrength": max(0.0, min(2.0, float(data.get("loraStrength", 1.0)))),
         "quantization": data.get("quantization"),
         "clipModel":    data.get("clipModel"),
     }
+
+    if len(job_params["prompt"]) > MAX_PROMPT_LEN:
+        raise ValueError(f"Prompt too long (max {MAX_PROMPT_LEN} characters)")
 
     return job_params, aes_key_bytes
 

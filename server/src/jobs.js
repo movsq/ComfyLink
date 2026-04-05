@@ -10,7 +10,8 @@
  *   createdAt: number,
  *   completedAt: number | null,       // when the job finished (for avg duration calc)
  *   phoneWs: WebSocket | null,        // the phone socket waiting for this result
- *   userId: string | null,            // anonymised owner identifier
+ *   userId: string | null,            // quota-accounting owner identifier (shared per code)
+ *   ownerSessionId: string | null,    // per-WS session ID for cancel authorization
  *   payload: string | null,           // encrypted payload to dispatch to PC
  * }
  */
@@ -25,7 +26,7 @@ const completionDurations = [];
 const MAX_DURATION_SAMPLES = 10;
 const DEFAULT_AVG_DURATION_MS = 60_000; // 60s fallback
 
-export function createJob(id, phoneWs, userId = null, payload = null) {
+export function createJob(id, phoneWs, userId = null, ownerSessionId = null, payload = null) {
   const job = {
     id,
     status: 'pending',
@@ -34,6 +35,7 @@ export function createJob(id, phoneWs, userId = null, payload = null) {
     completedAt: null,
     phoneWs,
     userId,
+    ownerSessionId,
     payload,
   };
   jobs.set(id, job);
@@ -102,6 +104,16 @@ export function getUserJobCount(userId) {
   return count;
 }
 
+/** Count all active (pending + processing) jobs across all users. */
+export function getTotalActiveJobCount() {
+  let count = 0;
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (job && (job.status === 'pending' || job.status === 'processing')) count++;
+  }
+  return count;
+}
+
 /** Average job duration in seconds (rolling avg of last 10, default 60s). */
 export function getAvgDurationSec() {
   if (completionDurations.length === 0) return DEFAULT_AVG_DURATION_MS / 1000;
@@ -110,10 +122,51 @@ export function getAvgDurationSec() {
 }
 
 /**
- * Build the queue state to broadcast to phone sockets.
- * Only includes pending/processing jobs (not done/error/cancelled).
- * @param {string|null} forUserId - the recipient's userId to compute `isYours`
+ * Public queue summary — aggregate counts only, no job IDs exposed.
+ * Safe to send to every connected socket.
+ * @returns {{ queueSize: number, avgDuration: number }}
+ */
+export function getPublicQueueState() {
+  let queueSize = 0;
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (!job) continue;
+    if (job.status === 'pending' || job.status === 'processing') queueSize++;
+  }
+  return { queueSize, avgDuration: getAvgDurationSec() };
+}
+
+/**
+ * Private queue state for the job owner: includes per-job detail (jobId, position).
+ * Only send this to the socket whose ownerSessionId matches.
+ * @param {string} ownerSessionId - the WS session ID to match against
  * @returns {{ queue: Array, activeJobId: string|null, avgDuration: number }}
+ */
+export function getOwnerQueueState(ownerSessionId) {
+  const queue = [];
+  let position = 0;
+  let activeJobId = null;
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (!job) continue;
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') continue;
+    position++;
+    if (job.status === 'processing') activeJobId = job.id;
+    if (job.ownerSessionId === ownerSessionId) {
+      queue.push({
+        jobId: job.id,
+        position,
+        status: job.status,
+        isYours: true,
+      });
+    }
+  }
+  return { queue, activeJobId, avgDuration: getAvgDurationSec() };
+}
+
+/**
+ * @deprecated Use getPublicQueueState / getOwnerQueueState instead.
+ * Kept for internal use during dispatchNextJob only.
  */
 export function getQueueState(forUserId = null) {
   const queue = [];

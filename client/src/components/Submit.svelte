@@ -15,7 +15,8 @@
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
 
   // Queue-derived state
-  let myQueueCount = $derived(queueState.queue.filter(j => j.isYours).length);
+  // queue now contains only this user's own jobs (server only sends owner detail).
+  let myQueueCount = $derived(queueState.queue.length);
   let queueLimit = $derived(queueState.maxQueuePerUser ?? 3);
   let queueFull = $derived(myQueueCount >= queueLimit);
 
@@ -766,27 +767,23 @@
     </form>
 
     <!-- ── Queue panel ──────────────────────────────────────────────── -->
-    {#if queueState.queue.length > 0 || dismissedResults.length > 0}
+    {#if queueState.queue.length > 0 || (queueState.queueSize ?? 0) > 0 || dismissedResults.length > 0}
       <div class="queue-panel">
         <div class="queue-header">
           <span class="queue-title">QUEUE</span>
           <div class="queue-header-right">
             <span class="queue-mine-count" class:queue-mine-full={queueFull}>{myQueueCount}/{queueLimit} YOUR SLOTS</span>
-            <span class="queue-total-count">{queueState.queue.length} total</span>
+            <span class="queue-total-count">{queueState.queueSize ?? queueState.queue.length} total</span>
           </div>
         </div>
         {#if queueState.queue.length > 0}
           <div class="queue-list">
             {#each queueState.queue as item (item.jobId)}
-              {@const jobMeta = item.isYours ? pendingJobs.get(item.jobId) : null}
-              <div class="queue-item" class:queue-mine={item.isYours} class:queue-theirs={!item.isYours} class:queue-active={item.status === 'processing'}>
+              {@const jobMeta = pendingJobs.get(item.jobId)}
+              <div class="queue-item queue-mine" class:queue-active={item.status === 'processing'}>
                 <div class="queue-main-row">
                   <span class="queue-pos">#{item.position}</span>
-                  {#if item.isYours}
-                    <span class="queue-mine-badge">YOU</span>
-                  {:else}
-                    <span class="queue-theirs-badge">OTHER</span>
-                  {/if}
+                  <span class="queue-mine-badge">YOU</span>
                   <span class="queue-status" class:queue-processing={item.status === 'processing'}>
                     {#if item.status === 'processing'}
                       {#if pct > 0}
@@ -798,7 +795,7 @@
                       <span class="queue-dot waiting"></span> WAITING
                     {/if}
                   </span>
-                  {#if item.isYours && (jobMeta?.preview1 || jobMeta?.preview2)}
+                  {#if jobMeta?.preview1 || jobMeta?.preview2}
                     <div class="queue-thumbs">
                       {#if jobMeta.preview1}
                         <img src={jobMeta.preview1} alt="" class="queue-thumb" draggable="false" />
@@ -813,13 +810,11 @@
                       ~{Math.max(1, Math.round(Math.max(0, item.position - 1) * queueState.avgDuration / 60))}m
                     {/if}
                   </span>
-                  {#if item.isYours}
-                    <button type="button" class="queue-cancel" onclick={() => handleCancelJob(item.jobId)} aria-label="Cancel job">
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                    </button>
-                  {/if}
+                  <button type="button" class="queue-cancel" onclick={() => handleCancelJob(item.jobId)} aria-label="Cancel job">
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                  </button>
                 </div>
-                {#if item.isYours && jobMeta?.promptText}
+                {#if jobMeta?.promptText}
                   <div class="queue-prompt-row">
                     <span class="queue-prompt-scroll">
                       <span class="queue-prompt-inner">{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{jobMeta.promptText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
@@ -1785,10 +1780,6 @@
     background: rgba(82, 116, 144, 0.13);
   }
 
-  .queue-item.queue-theirs {
-    opacity: 0.5;
-  }
-
   .queue-mine-badge {
     font-family: 'DM Mono', monospace;
     font-size: 0.55rem;
@@ -1796,17 +1787,6 @@
     color: #527490;
     background: rgba(82, 116, 144, 0.15);
     border: 1px solid rgba(82, 116, 144, 0.35);
-    border-radius: 0.25rem;
-    padding: 0.08rem 0.3rem;
-    flex-shrink: 0;
-  }
-
-  .queue-theirs-badge {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.55rem;
-    letter-spacing: 0.15em;
-    color: #525a66;
-    border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 0.25rem;
     padding: 0.08rem 0.3rem;
     flex-shrink: 0;

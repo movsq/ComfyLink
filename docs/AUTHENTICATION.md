@@ -41,13 +41,27 @@ Admins generate two types of invite code from the Admin panel or via the REST AP
 | `registration` | Activates a new Google account immediately on sign-in |
 | `job_access` | Grants a non-Google session scoped to job submission only (no vault, no admin) |
 
-Codes have the format `KLEIN-XXXX-XXXX` and can be configured with a use limit and expiry time.
+Codes have the format `KLEIN-XXXX-XXXX` (8 characters drawn from a 32-symbol unambiguous alphabet — no `I`, `O`, `0`, `1`), giving **40 bits of entropy per code**.  They can be configured with a use limit and expiry time.
+
+### Brute-force protection
+
+In addition to per-IP HTTP rate limiting, the server maintains a **global failed-attempt counter** in the database.  If 100 or more failed `/auth/code` requests are recorded within any 60-second window — regardless of source IP — the endpoint returns `429` until the window clears.  This prevents distributed guessing across many IPs from being effective.
 
 ---
 
 ## Access code login (guest mode)
 
 Users can enter a `job_access` code instead of signing in with Google. The server issues a short-lived JWT with `type: "code_user"` that allows job submission. The phone WebSocket receives `code_status` messages whenever remaining uses change.
+
+### Session isolation
+
+Each WebSocket connection that authenticates via an access code receives a unique **per-session identifier** (generated server-side with `uuidv4()`).  Jobs are linked to this identifier, not to the shared code ID.  This means:
+
+- Two users sharing the same `job_access` code **cannot cancel each other's jobs**.
+- Queue ownership display is scoped to the individual socket, not the code.
+- Quota accounting (uses-remaining decrement) still keys on the code ID.
+
+The code's validity (expiry, remaining uses) is re-checked on every WebSocket authentication attempt and at HTTP endpoints protected by `requireActiveOrCode`.  Revoked or exhausted codes are rejected immediately without waiting for a token refresh.
 
 ---
 
