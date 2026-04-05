@@ -13,6 +13,7 @@
  *   userId: string | null,            // quota-accounting owner identifier (shared per code)
  *   ownerSessionId: string | null,    // per-WS session ID for cancel authorization
  *   payload: string | null,           // encrypted payload to dispatch to PC
+ *   progress: { value: number, max: number, node: string|null, at: number } | null,
  * }
  */
 
@@ -37,6 +38,7 @@ export function createJob(id, phoneWs, userId = null, ownerSessionId = null, pay
     userId,
     ownerSessionId,
     payload,
+    progress: null,
   };
   jobs.set(id, job);
   jobQueue.push(id);
@@ -90,6 +92,64 @@ export function getActiveJob() {
     if (job && job.status === 'processing') return job;
   }
   return null;
+}
+
+/** Position of a non-terminal job in the current queue (1-based), null if absent. */
+export function getJobPosition(jobId) {
+  let position = 0;
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (!job) continue;
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') continue;
+    position++;
+    if (job.id === jobId) return position;
+  }
+  return null;
+}
+
+/** Recoverable jobs for a queue owner (pending + processing). */
+export function getRecoverableJobsByUserId(userId) {
+  const result = [];
+  for (const jid of jobQueue) {
+    const job = jobs.get(jid);
+    if (!job || job.userId !== userId) continue;
+    if (job.status === 'pending' || job.status === 'processing') {
+      result.push(job);
+    }
+  }
+  return result;
+}
+
+/** Rebind a job to a newly reconnected owner socket/session. */
+export function reclaimJob(jobId, phoneWs, ownerSessionId) {
+  const job = jobs.get(jobId);
+  if (!job) return false;
+  job.phoneWs = phoneWs;
+  job.ownerSessionId = ownerSessionId;
+  return true;
+}
+
+/** Cache latest progress for replay on reconnect. */
+export function updateJobProgress(jobId, value, max, node = null) {
+  const job = jobs.get(jobId);
+  if (!job) return false;
+  job.progress = { value, max, node, at: Date.now() };
+  return true;
+}
+
+/** Stable queue snapshot for a specific job (owner-facing). */
+export function getJobSnapshot(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return null;
+  if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return null;
+  return {
+    jobId: job.id,
+    status: job.status,
+    position: getJobPosition(job.id),
+    isYours: true,
+    progress: job.progress,
+    createdAt: job.createdAt,
+  };
 }
 
 /** Count non-terminal jobs for a given userId. */

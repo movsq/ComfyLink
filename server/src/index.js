@@ -53,9 +53,13 @@ import {
   completeJob,
   getJob,
   updateJobStatus,
+  updateJobProgress,
   pruneOldJobs,
   getNextPendingJob,
   getActiveJob,
+  getJobSnapshot,
+  reclaimJob,
+  getRecoverableJobsByUserId,
   getUserJobCount,
   getTotalActiveJobCount,
   getQueueState,
@@ -140,6 +144,14 @@ function registerPhoneSocket(ws, userId, sessionId) {
 
 function unregisterPhoneSocket(ws) {
   allPhoneSockets.delete(ws);
+}
+
+function isSessionOnline(sessionId) {
+  if (!sessionId) return false;
+  for (const [, meta] of allPhoneSockets) {
+    if (meta.sessionId === sessionId) return true;
+  }
+  return false;
 }
 
 /** Broadcast queue_update to all connected phone sockets.
@@ -947,6 +959,7 @@ function handlePcMessage(raw) {
     if (typeof msg.jobId !== 'string' || !msg.jobId) return;
     const job = getJob(msg.jobId);
     if (!job || job.status !== 'processing') return;
+    updateJobProgress(msg.jobId, value, max, msg.node ?? null);
     // Owner socket gets full detail (jobId + node) to drive its specific progress bar.
     // All other sockets receive only value/max — enough to show a generic activity
     // indicator without exposing the foreign job identifier.
@@ -973,8 +986,13 @@ function handlePcMessage(raw) {
       return;
     }
     completeJob(msg.jobId, msg.payload);
-    if (job.phoneWs?.readyState === 1) {
-      sendJson(job.phoneWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
+    const ownerSockets = [];
+    for (const [ws, meta] of allPhoneSockets) {
+      if (ws.readyState !== 1) continue;
+      if (meta.userId === job.userId) ownerSockets.push(ws);
+    }
+    for (const ownerWs of ownerSockets) {
+      sendJson(ownerWs, { type: 'result', jobId: msg.jobId, payload: msg.payload });
     }
     console.log(`[pc] Job ${msg.jobId} completed.`);
     deleteJob(msg.jobId);
@@ -988,10 +1006,15 @@ function handlePcMessage(raw) {
     const job = getJob(msg.jobId);
     if (job) {
       updateJobStatus(msg.jobId, 'error');
-      if (job.phoneWs?.readyState === 1) {
+      const ownerSockets = [];
+      for (const [ws, meta] of allPhoneSockets) {
+        if (ws.readyState !== 1) continue;
+        if (meta.userId === job.userId) ownerSockets.push(ws);
+      }
+      for (const ownerWs of ownerSockets) {
         // Never forward raw PC error messages to clients — they may contain
         // Python tracebacks, file paths, or library version info.
-        sendJson(job.phoneWs, { type: 'error', jobId: msg.jobId, message: 'Processing failed' });
+        sendJson(ownerWs, { type: 'error', jobId: msg.jobId, message: 'Processing failed' });
       }
       deleteJob(msg.jobId);
     }
@@ -1097,9 +1120,24 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload) {
   }
 
   // Send initial queue state
+  const recovered = [];
+  const recoverableJobs = getRecoverableJobsByUserId(queueUserId);
+  for (const job of recoverableJobs) {
+    if (job.ownerSessionId && job.ownerSessionId !== wsSessionId && isSessionOnline(job.ownerSessionId)) {
+      continue;
+    }
+    if (reclaimJob(job.id, ws, wsSessionId)) {
+      const snap = getJobSnapshot(job.id);
+      if (snap) recovered.push(snap);
+    }
+  }
+
   const pub = getPublicQueueState();
   const own = getOwnerQueueState(wsSessionId);
   sendJson(ws, { type: 'queue_update', ...pub, ...own, maxQueuePerUser: MAX_QUEUE_PER_USER });
+  if (recovered.length > 0) {
+    sendJson(ws, { type: 'job_recovery', jobs: recovered });
+  }
 
   // ── Periodic re-validation: close socket if user is no longer active ────────
   const WS_REVALIDATE_MS = 5 * 60_000; // 5 minutes

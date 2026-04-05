@@ -9,7 +9,7 @@
     encodeJobPayload,
   } from '../lib/crypto.js';
 
-  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null } = $props();
+  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null, wsConnected = false } = $props();
 
   let codeDepleted = $derived(codeUsesRemaining !== null && codeUsesRemaining === 0);
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
@@ -309,6 +309,10 @@
   // ── Submit ────────────────────────────────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!wsConnected) {
+      error = 'Connection is offline. Wait for reconnect, then retry.';
+      return;
+    }
     if (!prompt.trim() || status !== 'idle' || queueFull) return;
     error = '';
     status = 'encrypting';
@@ -366,7 +370,11 @@
   }
 
   function handleCancelJob(jobId) {
-    ws.send({ type: 'cancel', jobId });
+    const sent = ws.send({ type: 'cancel', jobId });
+    if (!sent) {
+      error = 'Unable to cancel while reconnecting. Try again once connected.';
+      return;
+    }
     onCancel({ jobId });
   }
 </script>
@@ -764,9 +772,11 @@
 
       <!-- Generate row -->
       <div class="generate-row">
-        <button type="submit" class="btn-generate" class:btn-queue-full={queueFull} disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted || queueFull}>
+        <button type="submit" class="btn-generate" class:btn-queue-full={queueFull} disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted || queueFull || !wsConnected}>
           {#if status === 'encrypting'}
             ENCRYPTING...
+          {:else if !wsConnected}
+            RECONNECTING...
           {:else if queueFull}
             QUEUED JOBS ({myQueueCount}/{queueLimit})
           {:else}

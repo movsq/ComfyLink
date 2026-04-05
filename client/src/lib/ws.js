@@ -19,6 +19,8 @@ export function createPhoneWS(token) {
   let closed = false;
   let failedAttempts = 0;
   let pingTimer = null;
+  let reconnectTimer = null;
+  let connectionState = 'connecting';
   const MAX_RETRIES = 5;
 
   function on(event, handler) {
@@ -33,7 +35,14 @@ export function createPhoneWS(token) {
     (listeners[event] ?? []).forEach((h) => h(data));
   }
 
+  function setConnectionState(nextState) {
+    if (connectionState === nextState) return;
+    connectionState = nextState;
+    emit('connection_state', { state: connectionState, failedAttempts });
+  }
+
   function connect() {
+    setConnectionState('connecting');
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     // Token is sent as the first WebSocket message (type: 'auth'), NOT in the URL,
     // so it is never written to proxy access logs.
@@ -63,6 +72,7 @@ export function createPhoneWS(token) {
         if (msg.type === 'auth_ok') {
           authenticated = true;
           failedAttempts = 0;
+          setConnectionState('connected');
           emit('open', null);
           // Application-level keepalive — fires every 20 s to keep idle connections
           // alive through NAT/firewall/proxy idle timeouts.
@@ -74,6 +84,7 @@ export function createPhoneWS(token) {
         } else if (msg.type === 'auth_failed') {
           console.warn('[ws] Auth rejected by server:', msg.reason);
           closed = true; // don't reconnect on auth failure
+          setConnectionState('exhausted');
           emit('reconnect_failed', { reason: msg.reason ?? 'auth_failed' });
           socket.close();
         }
@@ -91,12 +102,14 @@ export function createPhoneWS(token) {
       failedAttempts += 1;
       if (failedAttempts >= MAX_RETRIES) {
         console.warn(`[ws] ${MAX_RETRIES} reconnect attempts failed — giving up.`);
+        setConnectionState('exhausted');
         emit('reconnect_failed', null);
         return;
       }
+      setConnectionState('reconnecting');
       const delay = Math.min(3000 * 2 ** (failedAttempts - 1), 30000) + Math.random() * 1000;
       console.log(`[ws] Reconnecting in ${delay / 1000}s (attempt ${failedAttempts})…`);
-      setTimeout(connect, delay);
+      reconnectTimer = setTimeout(connect, delay);
     });
 
     socket.addEventListener('error', (event) => {
@@ -115,12 +128,34 @@ export function createPhoneWS(token) {
 
   function close() {
     closed = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     clearInterval(pingTimer);
     pingTimer = null;
+    setConnectionState('closed');
     socket?.close();
+  }
+
+  function reconnectNow() {
+    if (closed) return;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      try {
+        socket.close();
+      } catch {
+        // no-op
+      }
+      return;
+    }
+    connect();
   }
 
   connect();
 
-  return { on, send, close };
+  return { on, send, close, reconnectNow, getConnectionState: () => connectionState };
 }

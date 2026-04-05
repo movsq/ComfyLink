@@ -28,6 +28,8 @@
   // Ticker for countdown displays
   let clockNow = $state(Date.now());
   let wsError = $state('');
+  let wsState = $state('disconnected'); // connected | reconnecting | exhausted | connecting | disconnected
+  let wsFailedAttempts = $state(0);
   let codeUsesRemaining = $state(null); // null = not a code user or unlimited; 0 = depleted
   let userUsesRemaining = $state(null); // null = unlimited; number = remaining uses for Google user
   let showAdmin = $state(false);
@@ -117,6 +119,8 @@
       }
 
       ws = createPhoneWS(token);
+      wsState = ws.getConnectionState();
+      wsFailedAttempts = 0;
 
       // Open cross-tab channel for job state sync
       closeTabChannel();
@@ -173,11 +177,23 @@
     });
 
     ws.on('close', () => {
-      wsError = 'Connection lost — reconnecting…';
+      if (wsState !== 'exhausted') wsError = 'Connection lost — reconnecting...';
     });
 
     ws.on('open', () => {
       wsError = '';
+    });
+
+    ws.on('connection_state', ({ state, failedAttempts }) => {
+      wsState = state;
+      wsFailedAttempts = failedAttempts ?? 0;
+      if (state === 'connected') {
+        wsError = '';
+      } else if (state === 'reconnecting' || state === 'connecting') {
+        wsError = 'Connection lost — reconnecting...';
+      } else if (state === 'exhausted') {
+        wsError = 'Reconnect failed. Tap Retry Connection to resume live updates.';
+      }
     });
 
     ws.on('queue_update', (msg) => {
@@ -189,6 +205,18 @@
         avgDuration: msg.avgDuration ?? 60,
         queueSize: msg.queueSize ?? (msg.queue?.length ?? 0),
       };
+    });
+
+    ws.on('job_recovery', ({ jobs }) => {
+      if (!Array.isArray(jobs) || jobs.length === 0) return;
+      // Create placeholders for recovered jobs that originated before this socket.
+      const next = new Map(pendingJobs);
+      for (const job of jobs) {
+        if (job?.jobId && !next.has(job.jobId)) {
+          next.set(job.jobId, { aesKey: null, promptText: '' });
+        }
+      }
+      pendingJobs = next;
     });
 
     ws.on('code_refreshed', () => {
@@ -212,28 +240,8 @@
     });
 
     ws.on('reconnect_failed', () => {
-      ws.close();
-      ws = null;
-      token = null;
-      user = null;
-      // Cancel all dismissed timers and revoke object URLs
-      dismissedResults.forEach(d => {
-        clearTimeout(d.timerId);
-        if (d.imageUrl) URL.revokeObjectURL(d.imageUrl);
-      });
-      resultStack.forEach(item => { if (item.imageUrl) URL.revokeObjectURL(item.imageUrl); });
-      resultStack = [];
-      dismissedResults = [];
-      pendingJobs = new Map();
-      queueState = { queue: [], activeJobId: null, avgDuration: 60 };
-      wsError = '';
-      showAdmin = false;
-      showGallery = false;
-      showTerms = false;
-      tosAccepted = false;
-      masterKey = null;
-      vaultInfo = null;
-      view = 'login';
+      wsState = 'exhausted';
+      wsError = 'Reconnect failed. Tap Retry Connection to resume live updates.';
     });
 
     // Check vault status for Google users
@@ -402,11 +410,24 @@
   }
 
   onDestroy(() => ws?.close());
+
+  function retryConnection() {
+    ws?.reconnectNow?.();
+  }
 </script>
 
 <div class="app">
   {#if wsError && view !== 'login'}
-    <div class="ws-banner">{wsError}</div>
+    <div class="ws-banner">
+      <span>{wsError}</span>
+      {#if wsState === 'exhausted'}
+        <button type="button" class="ws-retry" onclick={retryConnection}>
+          RETRY CONNECTION
+        </button>
+      {:else if wsState === 'reconnecting' || wsState === 'connecting'}
+        <span class="ws-meta">Attempt {Math.max(1, wsFailedAttempts)}</span>
+      {/if}
+    </div>
   {/if}
 
   {#if view === 'login'}
@@ -430,6 +451,7 @@
       {pendingJobs}
       {dismissedResults}
       {clockNow}
+      wsConnected={wsState === 'connected'}
       onReopenDismissed={reopenDismissed}
     />
   {/if}
@@ -538,14 +560,35 @@
   }
 
   .ws-banner {
-    background: rgba(255, 255, 255, 0.04);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     color: #c4996a;
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem;
     letter-spacing: 0.06em;
     padding: 0.5rem 1rem;
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+  }
+
+  .ws-retry {
+    border: 1px solid rgba(196, 153, 106, 0.5);
+    background: rgba(196, 153, 106, 0.08);
+    color: #f6d2a8;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+    border-radius: 999px;
+    padding: 0.24rem 0.58rem;
+    cursor: pointer;
+  }
+
+  .ws-meta {
+    color: rgba(228, 228, 231, 0.7);
+    font-size: 0.64rem;
   }
 
 
