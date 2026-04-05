@@ -218,6 +218,8 @@
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 1.25rem 1.25rem 1rem 1rem;
+    user-select: none;
+    -webkit-user-select: none;
     padding: 1.25rem;
     backdrop-filter: blur(24px);
     display: flex;
@@ -302,6 +304,9 @@
     border-radius: 0.875rem;
     border: 1px solid rgba(255, 255, 255, 0.07);
     display: block;
+    -webkit-touch-callout: default;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .actions {

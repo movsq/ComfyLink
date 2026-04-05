@@ -213,6 +213,8 @@
     display: flex; flex-direction: column; gap: 0.875rem;
     max-height: 85dvh; overflow-y: auto;
     animation: sheet-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+    user-select: none;
+    -webkit-user-select: none;
   }
   @media (min-width: 480px) {
     .panel { border-radius: 1.25rem; max-height: 80vh; }
@@ -329,6 +331,8 @@
     max-height: calc(100dvh - 2rem);
     display: flex; flex-direction: column;
     gap: 0.75rem; align-items: center;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .view-close {
@@ -340,6 +344,9 @@
     object-fit: contain;
     border-radius: 0.875rem;
     border: 1px solid rgba(255, 255, 255, 0.07);
+    -webkit-touch-callout: default;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .view-actions {
