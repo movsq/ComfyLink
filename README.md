@@ -132,18 +132,18 @@ See [docs/ADMIN.md](docs/ADMIN.md) for managing users and invite codes from that
 <table>
   <tr>
     <td align="center"><b>Login</b><br><img src="docs/screenshots/login.png" width="220"></td>
+    <td align="center"><b>Login — Access Code</b><br><img src="docs/screenshots/login-access-code.png" width="220"></td>
     <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.png" width="220"></td>
-    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/gallery.png" width="220"></td>
   </tr>
   <tr>
+    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/gallery.png" width="220"></td>
+    <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.png" width="220"></td>
+    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
     <td align="center"><b>Admin — Codes</b><br><img src="docs/screenshots/admin-codes.png" width="220"></td>
     <td align="center"><b>Admin — Users</b><br><img src="docs/screenshots/admin-users.png" width="220"></td>
-    <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
-    <td></td>
-    <td></td>
   </tr>
 </table>
 
