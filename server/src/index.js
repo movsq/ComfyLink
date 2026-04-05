@@ -63,6 +63,7 @@ import {
   getOwnerQueueState,
   deleteJob,
 } from './jobs.js';
+import { TOS_VERSION, tos } from './tos-content.js';
 
 const MAX_QUEUE_PER_USER = 3;
 // Global queue depth — prevents many different identities from filling the queue
@@ -238,8 +239,8 @@ app.post('/auth/google', async (req, res) => {
     });
     return res.json({
       token,
-      tosAccepted: !!existing.tos_accepted_at,
-      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null, tosAccepted: !!existing.tos_accepted_at },
+      tosAccepted: (existing.tos_version ?? 0) >= TOS_VERSION,
+      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null, tosAccepted: (existing.tos_version ?? 0) >= TOS_VERSION },
     });
   }
 
@@ -299,7 +300,7 @@ app.get('/auth/me', (req, res) => {
     status: user.status,
     isAdmin: !!user.is_admin,
     usesRemaining: user.uses_remaining ?? null,
-    tosAccepted: !!user.tos_accepted_at,
+    tosAccepted: (user.tos_version ?? 0) >= TOS_VERSION,
   });
 });
 
@@ -309,8 +310,13 @@ app.post('/auth/tos', requireActive, (req, res) => {
   if (accepted !== true) {
     return res.status(400).json({ error: 'Must explicitly accept terms (accepted: true)' });
   }
-  updateTosAccepted(req.user.userId);
+  updateTosAccepted(req.user.userId, TOS_VERSION);
   res.json({ ok: true, tosAccepted: true });
+});
+
+/** GET /tos — serve TOS HTML content and current version (no auth required) */
+app.get('/tos', (req, res) => {
+  res.json({ version: TOS_VERSION, ...tos });
 });
 
 /**
@@ -686,7 +692,7 @@ app.get('/admin/users', requireAdmin, (req, res) => {
     status: u.status,
     isAdmin: !!u.is_admin,
     usesRemaining: u.uses_remaining ?? null,
-    tosAccepted: !!u.tos_accepted_at,
+    tosAccepted: (u.tos_version ?? 0) >= TOS_VERSION,
     createdAt: u.created_at,
   })));
 });
@@ -1238,7 +1244,7 @@ function handleJobSubmit(phoneWs, msg, jwtPayload = null, queueUserId = null, ws
       return;
     }
     // ── Terms of Service gate ──────────────────────────────────────────────────
-    if (!userRow.tos_accepted_at) {
+    if ((userRow.tos_version ?? 0) < TOS_VERSION) {
       sendJson(phoneWs, { type: 'error', message: 'tos_not_accepted' });
       return;
     }

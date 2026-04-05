@@ -34,6 +34,9 @@
     handle /auth* {
         reverse_proxy server:3000
     }
+    handle /tos* {
+        reverse_proxy server:3000
+    }
     handle /pc-pubkey* {
         reverse_proxy server:3000
     }

@@ -87,6 +87,12 @@ if (db.pragma('user_version', { simple: true }) < 2) {
   db.pragma('user_version = 2');
 }
 
+if (db.pragma('user_version', { simple: true }) < 4) {
+  // v4: track which TOS version the user accepted; NULL or 0 means must re-accept current version
+  try { db.exec('ALTER TABLE users ADD COLUMN tos_version INTEGER DEFAULT NULL'); } catch { /* already exists on fresh DB */ }
+  db.pragma('user_version = 4');
+}
+
 if (db.pragma('user_version', { simple: true }) < 3) {
   // v3: global code-auth failure log for brute-force protection
   db.exec(`
@@ -133,7 +139,7 @@ const stmtAtomicDecrementUserUses = db.prepare(
 const stmtFindByEmail = db.prepare('SELECT * FROM users WHERE email = ?');
 
 const stmtUpdateTosAccepted = db.prepare(
-  'UPDATE users SET tos_accepted_at = @tos_accepted_at, updated_at = @updated_at WHERE id = @id',
+  'UPDATE users SET tos_accepted_at = @tos_accepted_at, tos_version = @tos_version, updated_at = @updated_at WHERE id = @id',
 );
 
 // Invite codes
@@ -222,11 +228,11 @@ const stmtDeleteVault = db.prepare(
 );
 
 const stmtGetAllUsers = db.prepare(
-  'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, created_at, updated_at FROM users ORDER BY created_at DESC',
+  'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, tos_version, created_at, updated_at FROM users ORDER BY created_at DESC',
 );
 
 const stmtGetUsersByStatus = db.prepare(
-  'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, created_at, updated_at FROM users WHERE status = ? ORDER BY created_at DESC',
+  'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, tos_version, created_at, updated_at FROM users WHERE status = ? ORDER BY created_at DESC',
 );
 
 // Global code auth failure tracking (brute-force protection)
@@ -289,8 +295,8 @@ export function atomicDecrementUserUses(id) {
   return stmtAtomicDecrementUserUses.run({ id, updated_at: Date.now() });
 }
 
-export function updateTosAccepted(id) {
-  return stmtUpdateTosAccepted.run({ id, tos_accepted_at: Date.now(), updated_at: Date.now() });
+export function updateTosAccepted(id, version) {
+  return stmtUpdateTosAccepted.run({ id, tos_accepted_at: Date.now(), tos_version: version, updated_at: Date.now() });
 }
 
 // Invite codes

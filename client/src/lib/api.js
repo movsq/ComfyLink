@@ -215,6 +215,12 @@ export async function acceptTos(token) {
   return res.json();
 }
 
+export async function getTos() {
+  const res = await fetch('/tos');
+  if (!res.ok) throw new Error('Failed to load terms of service');
+  return res.json(); // { version, en, cz }
+}
+
 export async function loginWithCode(code) {
   const res = await fetch('/auth/code', {
     method: 'POST',
