@@ -812,6 +812,22 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
+  // ── CSWSH: Origin header check ───────────────────────────────────────────
+  // Only enforced when ALLOWED_ORIGINS is configured (production). In dev mode
+  // (no ALLOWED_ORIGINS) the check is skipped to match HTTP CORS behaviour.
+  // The /ws/pc endpoint is exempted — it is a native client (no browser Origin).
+  const reqOrigin = req.headers.origin;
+  if (allowedOrigins) {
+    const url0 = new URL(req.url, 'http://localhost');
+    if (url0.pathname !== '/ws/pc') {
+      if (!reqOrigin || !allowedOrigins.includes(reqOrigin)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    }
+  }
+
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === '/ws/admin') {
