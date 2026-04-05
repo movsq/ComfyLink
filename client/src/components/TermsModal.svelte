@@ -100,19 +100,40 @@
         <p class="terms-text">
           The Operator processes personal data in accordance with Regulation (EU)
           2016/679 (GDPR) as supplemented by Act No. 110/2019 Coll. (Czech Data
-          Protection Act). Data collected: Google account identifier (sub), email
-          address, display name, and profile picture — solely for authentication
-          and access control. Your prompts and generated images are end-to-end
-          encrypted; the server has no technical means to access them. Vault data
-          (encrypted blobs) is stored on the server but is readable only by you.
-          You may delete your vault and all stored results at any time via the app.
+          Protection Act). The lawful basis for processing is performance of
+          contract (Art. 6(1)(b) GDPR) — your account data is required to
+          authenticate you and enforce access controls.
+        </p>
+        <p class="terms-text">
+          Data collected from you: Google account identifier (sub), email address,
+          display name, and profile picture. Authentication is handled via Google
+          OAuth; Google acts as an independent data controller for the sign-in
+          flow and is subject to Google's own Privacy Policy
+          (policies.google.com/privacy). Your prompts and generated images are
+          end-to-end encrypted; the server has no technical means to access them.
+          Vault data (encrypted blobs) is stored on the server but is readable
+          only by you. You may delete your vault and all stored results at any
+          time via the app.
         </p>
 
-        <p class="section-heading">7. Data Retention &amp; Deletion</p>
+        <p class="section-heading">7. Your Rights, Retention &amp; Deletion</p>
         <p class="terms-text">
-          Account data is retained for the duration of the service. You may request
-          complete deletion of your account data by contacting the Operator. Upon
-          deletion, all vault keys and encrypted results are permanently destroyed.
+          Account data (name, email, profile picture, access timestamps) is
+          retained until you request deletion or the Service is discontinued.
+          Upon deletion, all vault keys and encrypted results are permanently
+          destroyed.
+        </p>
+        <p class="terms-text">
+          Under GDPR Arts. 15–22 you have the right to: access your personal
+          data; have inaccurate data rectified; have your data erased; restrict
+          or object to processing; and receive your data in a portable format.
+          To exercise any of these rights, contact the Operator via the admin
+          account.
+        </p>
+        <p class="terms-text">
+          You also have the right to lodge a complaint with the Czech Data
+          Protection Authority (Úřad pro ochranu osobních údajů — ÚOOÚ,
+          <strong>www.uoou.cz</strong>).
         </p>
 
         <p class="section-heading">8. Disclaimer of Warranties</p>
@@ -191,19 +212,38 @@
         <p class="terms-text">
           Provozovatel zpracovává osobní údaje v souladu s Nařízením (EU) 2016/679
           (GDPR) ve spojení se zákonem č. 110/2019 Sb. (zákon o zpracování osobních
-          údajů). Shromažďované údaje: identifikátor účtu Google (sub), e-mailová
-          adresa, zobrazované jméno a profilový obrázek – výhradně za účelem
-          ověřování totožnosti a řízení přístupu. Vaše prompty a vygenerované obrázky
-          jsou end-to-end šifrovány; server k nim nemá technický přístup. Data trezoru
-          (šifrované bloby) jsou uložena na serveru, ale přečíst je můžete pouze vy.
-          Trezor a všechny uložené výsledky můžete kdykoli smazat přímo v aplikaci.
+          údajů). Právním základem zpracování je plnění smlouvy (čl. 6 odst. 1
+          písm. b) GDPR) — vaše údaje jsou nezbytné pro ověření totožnosti
+          a řízení přístupu.
+        </p>
+        <p class="terms-text">
+          Shromažďované údaje: identifikátor účtu Google (sub), e-mailová adresa,
+          zobrazované jméno a profilový obrázek. Přihlašování probíhá přes Google
+          OAuth; Google vystupuje jako samostatný správce údajů pro průběh
+          přihlášení a řídí se vlastními zásadami ochrany soukromí
+          (policies.google.com/privacy). Vaše prompty a vygenerované obrázky jsou
+          end-to-end šifrovány; server k nim nemá technický přístup. Data trezoru
+          (šifrované bloby) jsou uložena na serveru, ale přečíst je můžete pouze
+          vy. Trezor a všechny uložené výsledky můžete kdykoli smazat přímo
+          v aplikaci.
         </p>
 
-        <p class="section-heading">7. Uchovávání a mazání dat</p>
+        <p class="section-heading">7. Vaše práva, uchovávání a mazání dat</p>
         <p class="terms-text">
-          Data účtu jsou uchovávána po dobu existence Služby. Úplné smazání
-          svých dat můžete kdykoli vyžádat kontaktováním Provozovatele.
-          Po smazání jsou všechny klíče trezoru a šifrované výsledky trvale zničeny.
+          Data účtu (jméno, e-mail, profilový obrázek, záznamy přístupu) jsou
+          uchovávána do doby, než požádáte o jejich smazání, nebo do ukončení
+          Služby. Po smazání jsou všechny klíče trezoru a šifrované výsledky
+          trvale zničeny.
+        </p>
+        <p class="terms-text">
+          Podle čl. 15–22 GDPR máte právo: na přístup ke svým osobním údajům;
+          na opravu nepřesných údajů; na výmaz údajů; na omezení nebo námitku
+          proti zpracování; a na přenositelnost údajů. Pro uplatnění těchto práv
+          kontaktujte Provozovatele prostřednictvím účtu správce.
+        </p>
+        <p class="terms-text">
+          Máte rovněž právo podat stížnost u Úřadu pro ochranu osobních údajů
+          (ÚOOÚ, <strong>www.uoou.cz</strong>).
         </p>
 
         <p class="section-heading">8. Vyloučení záruk</p>
