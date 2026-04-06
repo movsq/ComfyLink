@@ -83,6 +83,12 @@ See [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) for required model 
 
 > **Port note:** The pc-client connects to ComfyUI at `COMFYUI_URL` in your `.env` (default `http://127.0.0.1:8188`). Match this to **Settings → Server-Config → Port** in ComfyUI.
 
+> **Recommended ComfyUI launch flags** (privacy + stealth):
+> ```
+> python main.py --disable-metadata --database-url sqlite:///:memory: --verbose CRITICAL --dont-print-server
+> ```
+> `--disable-metadata` stops prompt JSON being embedded in output PNGs. `--database-url sqlite:///:memory:` keeps history in RAM only (never written to `user/comfyui.db`). `--verbose CRITICAL` silences all non-fatal log output. The pc-client additionally clears each prompt from ComfyUI's in-memory history immediately after the image is downloaded.
+
 ### 6. Start everything
 
 ```bash

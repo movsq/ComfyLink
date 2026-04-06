@@ -51,6 +51,20 @@ def _validate_model_filename(name: str | None, label: str) -> None:
         raise ValueError(f"Invalid {label}: path traversal not allowed")
 
 
+async def _clear_history(prompt_id: str) -> None:
+    """Delete a single prompt from ComfyUI's in-memory history."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{COMFYUI_URL}/history",
+                json={"delete": [prompt_id]},
+            ) as resp:
+                if resp.status != 200:
+                    log.debug(f"[comfyui] History delete returned HTTP {resp.status}")
+    except Exception as exc:
+        log.debug(f"[comfyui] Could not clear history for {prompt_id}: {exc}")
+
+
 async def interrupt_comfyui() -> None:
     """Send an interrupt request to ComfyUI to cancel the current generation."""
     try:
@@ -345,4 +359,8 @@ async def process_job(
             image_bytes = await resp.read()
 
     log.info(f"[comfyui] Downloaded {len(image_bytes):,} bytes.")
+
+        # ── Step 5: DELETE prompt from in-memory history ───────────────────────
+    await _clear_history(prompt_id)
+
     return image_bytes

@@ -28,7 +28,8 @@ The ComfyUI workflow exists in two formats:
 3. Uploads images to ComfyUI via `POST /upload/image`, patches filenames into `LoadImage` nodes
 4. Prunes unused nodes based on image count (0, 1, or 2) and whether a LoRA is active
 5. POSTs the assembled workflow to ComfyUI's `/prompt` API
-6. Monitors progress via ComfyUI's WebSocket, then downloads the output from `/history`
+6. Monitors progress via ComfyUI's WebSocket, then downloads the output image via `/view`
+7. Deletes the prompt from ComfyUI's in-memory history via `POST /history {"delete": [prompt_id]}`
 
 See [ComfyUI-Workflow/README.md](../ComfyUI-Workflow/README.md) for the full node map and customisation instructions.
 
