@@ -13,24 +13,19 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
     <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.png" width="220"></td>
   </tr>
   <tr>
-    <td></td>
     <td align="center"><b>Queue — Current</b><br><img src="docs/screenshots/queue-current.png" width="220"></td>
     <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.png" width="220"></td>
+    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.png" width="220"></td>
   </tr>
   <tr>
-    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.png" width="220"></td>
     <td align="center"><b>Result — Expiring</b><br><img src="docs/screenshots/result-expiring.png" width="220"></td>
     <td align="center"><b>Gallery</b><br><img src="docs/screenshots/gallery%20%28vault%29.png" width="220"></td>
+    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
   </tr>
   <tr>
-    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
     <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
     <td align="center"><b>Admin — Codes</b><br><img src="docs/screenshots/admin-codes.png" width="220"></td>
-  </tr>
-  <tr>
     <td align="center"><b>Admin — Users</b><br><img src="docs/screenshots/admin-users.png" width="220"></td>
-    <td></td>
-    <td></td>
   </tr>
 </table>
 
