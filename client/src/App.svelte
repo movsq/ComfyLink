@@ -132,7 +132,7 @@
       initTabChannel();
 
     ws.on('queued', ({ jobId }) => {
-      wsError = ''; // server accepted the job — dismiss any stale error banner
+      if (wsState === 'connected') wsError = ''; // only dismiss non-connection errors when actually connected
       console.log(`[app] Job queued: ${jobId}`);
     });
 
@@ -149,7 +149,7 @@
         wsError = 'A finished job was recovered, but this tab cannot decrypt it.';
         return;
       }
-      wsError = '';
+      if (wsState === 'connected') wsError = '';
       // Append to END of stack (opens behind the currently-viewed result)
       resultStack = [...resultStack, {
         id: msg.jobId,
@@ -189,7 +189,9 @@
     });
 
     ws.on('close', () => {
-      if (wsState !== 'exhausted') wsError = 'Connection lost — reconnecting...';
+      wsError = wsState === 'exhausted'
+        ? 'Reconnect failed. Tap Retry Connection to resume live updates.'
+        : 'Connection lost — reconnecting...';
     });
 
     ws.on('open', () => {
@@ -508,9 +510,9 @@
 </script>
 
 <div class="app">
-  {#if wsError && view !== 'login'}
+  {#if (wsError || wsState === 'reconnecting' || wsState === 'exhausted') && view !== 'login'}
     <div class="ws-banner">
-      <span>{wsError}</span>
+      <span>{wsError || (wsState === 'exhausted' ? 'Reconnect failed. Tap Retry Connection to resume live updates.' : 'Connection lost — reconnecting...')}</span>
       {#if wsState === 'exhausted'}
         <button type="button" class="ws-retry" onclick={retryConnection}>
           RETRY CONNECTION

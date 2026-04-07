@@ -1441,7 +1441,7 @@
 
   .offline-hint {
     font-family: 'DM Mono', monospace;
-    color: #a8b5c4;
+    color: #c4996a;
     font-size: 0.71rem;
     margin: 0;
     letter-spacing: 0.04em;
