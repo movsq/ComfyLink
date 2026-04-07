@@ -73,9 +73,9 @@ import { TOS_VERSION, tos } from './tos-content.js';
 const MAX_QUEUE_PER_USER = 3;
 // Global queue depth — prevents many different identities from filling the queue
 const MAX_TOTAL_QUEUE_DEPTH = parseInt(process.env.MAX_TOTAL_QUEUE_DEPTH ?? '50', 10);
-// Maximum encrypted payload size (base64 chars). Two 5 MB images ≈ 13 MB base64;
-// 20 MB gives headroom while blocking obviously over-sized blobs.
-const MAX_PAYLOAD_B64 = 20 * 1024 * 1024;
+// Maximum encrypted payload size (base64 chars). Two 15 MB images ≈ 40 MB base64;
+// 100 MB gives ample headroom while blocking obviously over-sized blobs.
+const MAX_PAYLOAD_B64 = 100 * 1024 * 1024;
 const MAX_RESULTS_PER_USER = parseInt(process.env.MAX_RESULTS_PER_USER ?? '500', 10);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -797,7 +797,7 @@ if (existsSync(clientDist)) {
 const server = createServer(app);
 
 // ── WebSocket servers (noServer mode, we route upgrades manually) ─────────────
-const wss = new WebSocketServer({ noServer: true, maxPayload: 25 * 1024 * 1024 });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 100 * 1024 * 1024 });
 
 // ── Heartbeat — keeps idle connections alive through NAT/firewall/proxy timeouts ─
 // 25 s is conservative enough to beat typical 30 s NAT idle timeouts.

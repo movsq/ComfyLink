@@ -164,12 +164,14 @@ async def _upload_image(
     Upload image bytes to ComfyUI's input directory.
     Returns the server-confirmed filename to use in the workflow.
     """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}.get(ext, "image/png")
     form = aiohttp.FormData()
     form.add_field(
         "image",
         image_bytes,
         filename=filename,
-        content_type="image/png",
+        content_type=mime,
     )
     form.add_field("overwrite", "true")
     async with session.post(f"{COMFYUI_URL}/upload/image", data=form) as resp:
