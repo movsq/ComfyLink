@@ -1,139 +1,10 @@
-﻿# Flux2-9B-Klein-Remote
+﻿# ComfyLink
 
-E2E-encrypted remote ComfyUI relay for **Flux 2 Klein 9B GGUF** — the first Flux 2 model
-that runs well on consumer GPUs. Send jobs from your phone → VPS relay → your PC running
-ComfyUI. The relay server only ever sees opaque encrypted blobs; no prompts, images, or
-results are visible to it.
+**Generate with Flux 2 from your phone. End-to-end encrypted. Your prompts stay yours.**
 
-```
-[Phone browser] ──── WSS encrypted ────▶ [VPS relay] ──── WSS encrypted ────▶ [PC + ComfyUI]
-```
-
-**Why this exists:** I wanted to run Flux 2 on my home PC's GPU and use it from my phone
-without exposing any ports on my home network. The PC connects *outbound* to a cheap VPS
-relay — no port-forwarding or dynamic DNS needed. Everything between phone and PC is
-end-to-end encrypted; the relay is intentionally blind.
+Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. You deploy a lightweight relay server on a cheap VPS (or a Tailscale-connected machine); your PC connects to it outbound. The relay is architecturally blind: it forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
 ---
-
-<p align="center"><a href="#screenshots"><strong>📷 Screenshots</strong></a></p>
-
----
-
-## Prerequisites
-
-| Component | Requirement |
-|-----------|-------------|
-| **PC** | NVIDIA GPU with ≥ 12 GB VRAM, [ComfyUI](https://github.com/comfyanonymous/ComfyUI) installed |
-| **VPS** | Any Linux VPS with Docker + Docker Compose (or a Tailscale-connected machine) |
-| **Phone** | Any modern browser with WebAuthn/PRF support (Chrome 118+, Safari 17.4+) |
-| **Google Cloud project** | OAuth 2.0 Client ID for user authentication (free tier is fine) |
-
----
-
-## Quick Start
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/YOUR_USERNAME/Flux2-9B-Klein-Remote.git
-cd Flux2-9B-Klein-Remote
-```
-
-### 2. Copy and edit the config
-
-```bash
-cp .env.example .env
-```
-
-At minimum set these four values:
-
-```env
-PC_SECRET=<long-random-string>          # PC WebSocket auth secret
-JWT_SECRET=<another-long-random-string> # Session token signing key
-GOOGLE_CLIENT_ID=<your-oauth-client-id>
-VITE_GOOGLE_CLIENT_ID=<same-value>      # Vite must expose it with VITE_ prefix
-```
-
-> **Generate random secrets:** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
->
-> Full variable reference → [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
-
-### 3. Set up Google OAuth
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
-2. Create an **OAuth 2.0 Client ID** (Web application)
-3. Authorised JavaScript origins: `https://YOUR_DOMAIN` (or `http://localhost:5173` for dev)
-4. Copy the Client ID into `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` in `.env`
-
-### 4. Generate the PC keypair (first time only)
-
-```bash
-cd pc-client
-pip install -r requirements.txt
-python keygen.py
-```
-
-This creates `private_key.pem` and `public_key.pem` inside `pc-client/`.
-**Back up `private_key.pem`** — losing it means vault results encrypted to this key can no longer be decrypted.
-
-### 5. Install ComfyUI models and custom nodes
-
-See [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) for required model files and custom node packs.
-
-> **Port note:** The pc-client connects to ComfyUI at `COMFYUI_URL` in your `.env` (default `http://127.0.0.1:8188`). Match this to **Settings → Server-Config → Port** in ComfyUI.
-
-> **Recommended ComfyUI launch flags** (privacy + stealth):
-> ```
-> python main.py --disable-metadata --database-url sqlite:///:memory: --verbose CRITICAL --dont-print-server
-> ```
-> `--disable-metadata` stops prompt JSON being embedded in output PNGs. `--database-url sqlite:///:memory:` keeps history in RAM only (never written to `user/comfyui.db`). `--verbose CRITICAL` silences all non-fatal log output. The pc-client additionally clears each prompt from ComfyUI's in-memory history immediately after the image is downloaded.
-
-### 6. Start everything
-
-```bash
-# Terminal 1 — relay server
-cd server && npm install && npm run dev
-
-# Terminal 2 — Svelte client
-cd client && npm install && npm run dev
-
-# Terminal 3 — PC Python bridge
-cd pc-client && python main.py
-```
-
-Open the URL Vite prints (e.g. `http://localhost:5173`) and sign in with Google.
-
-> **No GPU?** Use `comfyui_mock.py` — swap the import in `main.py` to get a tinted placeholder image instead.
->
-> **Env issues?** Run `python pc-client/check_env.py` to verify `PC_SECRET` is loading correctly.
-
-### 7. Promote the first admin
-
-```bash
-cd server && node src/seed-admin.js your@email.com
-```
-
-See [docs/ADMIN.md](docs/ADMIN.md) for managing users and invite codes from that point on.
-
----
-
-## Documentation
-
-| Doc | Contents |
-|-----|----------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
-| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale |
-| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol message reference |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
-| [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
-| [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
-
----
-
-## Screenshots
 
 <table>
   <tr>
@@ -165,6 +36,62 @@ See [docs/ADMIN.md](docs/ADMIN.md) for managing users and invite codes from that
 
 ---
 
+## How it works
+
+```
+[Any browser] ──── WSS encrypted ────▶ [VPS relay] ──── WSS encrypted ────▶ [PC + ComfyUI]
+```
+
+Your PC runs ComfyUI and a lightweight Python bridge. It connects *outbound* to the relay — no port-forwarding, no dynamic DNS, no firewall rules. The relay brokers WebSocket connections between your browser and your PC; it never decrypts anything.
+
+**One PC per deployment.** ComfyLink is designed for personal or small-group use. You run the relay, you control who gets in. The relay and your PC authenticate through a shared secret (`PC_SECRET`); this is a 1:1 relationship by design.
+
+**No public VPS required.** If you run [Tailscale](https://tailscale.com/) on both your PC and VPS, you can skip exposing the relay to the public internet entirely and keep everything inside your private mesh network.
+
+---
+
+## Features
+
+- **End-to-end encryption** — every job (prompt, reference images, result) is encrypted on-device with ECDH-AES-GCM; the relay sees only opaque blobs
+- **Encrypted vault** — generated images are stored as encrypted blobs; the decryption key is held by you and wrapped with your biometric/passkey or password; the server has no access to your content
+- **Two distinct access paths:**
+  - **Google account** — full account with quota tracking, vault, gallery, and ToS acceptance flow; suited for trusted users who will use the tool regularly
+  - **Access code** — no account, no sign-up, no Google required; paste a code and generate; suited for sharing with less technical friends or one-off access
+- **Per-user quotas** — admin-configurable job limits per account
+- **Admin panel** — manage users, issue and revoke access codes, adjust quotas
+- **WebAuthn / biometric vault unlock** — vault unlocked with passkey, fingerprint, or password; no master password typed in plaintext
+- **Single-reference and multi-reference image generation** — Flux 2 Klein 9B GGUF workflow with model and quantization selection
+
+---
+
+## Privacy
+
+- **Relay:** receives only encrypted blobs; cannot read prompts, reference images, or results even under compulsion
+- **Vault:** encrypted blobs stored server-side; your key never leaves your device; a lawful data request produces ciphertext the server cannot decrypt
+- **ComfyUI:** ComfyLink configures it with hardening flags (`--disable-metadata`, `--database-url sqlite:///:memory:`, `--verbose CRITICAL`) to reduce data retention; ComfyUI is a third-party component running on the deployer's machine — we don't control its internals
+- **pc-client:** deletes each prompt from ComfyUI's in-memory history immediately after the result image is downloaded
+
+Full detail, the deployer legal position on compelled decryption, and a plaintext metadata audit → [docs/PRIVACY.md](docs/PRIVACY.md)
+
+---
+
+## Get started
+
+Ready to install? → **[SETUP.md](SETUP.md)**
+
+| Doc | Contents |
+|-----|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
+| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale |
+| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol message reference |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
+| [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
+| [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
+
+---
+
 ## Repo Structure
 
 ```
@@ -175,7 +102,7 @@ Flux2-9B-Klein-Remote/
 ├── Caddyfile             ← reverse proxy / TLS config
 ├── docker-compose.yml    ← VPS orchestration (server + Caddy)
 ├── docs/                 ← extended documentation
-├── client/               ← Svelte frontend (phone-facing)
+├── client/               ← Svelte frontend (browser-facing)
 ├── server/               ← Node.js/Express relay + WebSocket broker
 └── pc-client/            ← Python bridge: connects relay → ComfyUI
 ```
@@ -184,20 +111,7 @@ Flux2-9B-Klein-Remote/
 
 ## Terms of Service
 
-All users are subject to the Terms of Service regardless of how they authenticate.
-
-**Google-authenticated users** must explicitly accept via the ToS modal — shown on first login and re-shown if a user attempts to generate without having accepted. Acceptance is recorded server-side (`tos_accepted_at` in the `users` table).
-
-**Access code users** are bound by the same terms upon first use of the Service. The ToS (Section 5) expressly identifies invite-code access as a covered access method; admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
-
-The terms operate under the following legal framework:
-
-| Topic | Instrument |
-|-------|-----------|
-| Contract formation | § 1724 et seq. of Act No. 89/2012 Coll. (Czech Civil Code) |
-| Data protection | Regulation (EU) 2016/679 (GDPR) supplemented by Act No. 110/2019 Coll. |
-| Prohibited content | Act No. 40/2009 Coll. (Czech Criminal Code), Regulation (EU) 2024/1689 (AI Act) |
-| Governing law | Czech Republic — disputes resolved by Czech courts |
+All users — Google-authenticated or access code — are subject to the Terms of Service. Full text and legal framework (Czech Civil Code, GDPR, AI Act) → [docs/TOS.md](docs/TOS.md)
 
 ---
 
