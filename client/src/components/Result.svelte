@@ -156,7 +156,9 @@
   onclick={(e) => { if (!isGhost && e.target === e.currentTarget) onClose(); }}
 >
   <div class="modal">
-    <button class="close-btn" onclick={onClose} aria-label="Close">✕</button>
+    <button class="close-btn" onclick={onClose} aria-label="Close">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
 
     <span class="modal-label">RESULT</span>
 
@@ -365,7 +367,7 @@
     display: block;
     font-family: 'DM Mono', monospace;
     font-size: 0.65rem;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.22em;
     color: #527490;
     font-weight: 400;
   }

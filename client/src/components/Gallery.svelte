@@ -304,7 +304,7 @@
     cursor: pointer; transition: transform 0.12s, background 0.2s, color 0.2s;
   }
   .close-btn:hover { background: rgba(255, 255, 255, 0.1); color: #e4e4e7; }
-  .close-btn:active { transform: scale(0.88); }
+  .close-btn:active { transform: scale(0.88); filter: brightness(0.85); }
 
   .status {
     font-family: 'DM Mono', monospace;

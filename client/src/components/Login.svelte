@@ -482,7 +482,7 @@
   }
 
   .code-input:focus {
-    border-color: rgba(82, 116, 144, 0.5);
+    border-color: rgba(82, 116, 144, 0.4);
   }
 
   button {

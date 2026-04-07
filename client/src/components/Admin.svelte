@@ -460,13 +460,13 @@
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5l2 2-7 7H2.5v-2l7-7z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
                     </button>
                     {#if u.status !== 'active'}
-                      <button class="btn-small btn-approve" disabled={updatingUserId === u.id} onclick={() => handleUpdateUser(u.id, 'active')}>
-                        ✓
+                      <button class="btn-small btn-approve" disabled={updatingUserId === u.id} onclick={() => handleUpdateUser(u.id, 'active')} aria-label="Approve user">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6.5l2.5 2.5L10 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                       </button>
                     {/if}
                     {#if u.status !== 'suspended'}
-                      <button class="btn-small btn-reject" disabled={updatingUserId === u.id} onclick={() => handleUpdateUser(u.id, 'suspended')}>
-                        ✕
+                      <button class="btn-small btn-reject" disabled={updatingUserId === u.id} onclick={() => handleUpdateUser(u.id, 'suspended')} aria-label="Suspend user">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                       </button>
                     {/if}
                   </div>
@@ -634,7 +634,7 @@
 
   .section-label {
     font-family: 'DM Mono', monospace;
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     letter-spacing: 0.2em;
     color: #6c7585;
   }
@@ -653,14 +653,14 @@
   .field-label {
     display: block;
     font-family: 'DM Mono', monospace;
-    font-size: 0.68rem;
+    font-size: 0.6rem;
     letter-spacing: 0.18em;
     color: #8b96a6;
     margin-bottom: 0.35rem;
   }
 
   input[type='number'] {
-    padding: 0.65rem 0.875rem;
+    padding: 0.72rem 1rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
     background: rgba(255, 255, 255, 0.05);

@@ -348,7 +348,7 @@
   }
   .title {
     font-family: 'DM Mono', monospace;
-    font-size: 0.75rem; letter-spacing: 0.22em; color: #527490;
+    font-size: 0.65rem; letter-spacing: 0.22em; color: #527490;
   }
   .close-btn {
     width: 2rem; height: 2rem; border-radius: 50%;
@@ -358,7 +358,7 @@
     cursor: pointer; transition: transform 0.12s, background 0.2s, color 0.2s;
   }
   .close-btn:hover { background: rgba(255, 255, 255, 0.1); color: #e4e4e7; }
-  .close-btn:active { transform: scale(0.88); }
+  .close-btn:active { transform: scale(0.88); filter: brightness(0.85); }
 
   .methods-status {
     display: flex; flex-direction: column; gap: 0.5rem;
@@ -401,7 +401,7 @@
 
   .hint {
     font-family: 'DM Mono', monospace;
-    font-size: 0.72rem; color: #6c7585; line-height: 1.5; margin: 0;
+    font-size: 0.75rem; color: #8b96a6; line-height: 1.6; margin: 0;
   }
 
   .btn-primary {
@@ -451,7 +451,7 @@
 
   .field-label {
     font-family: 'DM Mono', monospace;
-    font-size: 0.72rem; color: #6c7585; letter-spacing: 0.04em;
+    font-size: 0.6rem; color: #8b96a6; letter-spacing: 0.18em;
     margin-bottom: 0.35rem; display: block;
   }
   .field-label strong { color: #c47070; }
@@ -463,7 +463,7 @@
   .or-line { flex: 1; height: 1px; background: rgba(255, 255, 255, 0.08); }
   .or-text {
     font-family: 'DM Mono', monospace;
-    font-size: 0.68rem; color: #525a66; letter-spacing: 0.15em;
+    font-size: 0.65rem; color: #525a66; letter-spacing: 0.15em;
   }
 
   .file-upload {
