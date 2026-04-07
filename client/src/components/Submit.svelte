@@ -9,7 +9,7 @@
     encodeJobPayload,
   } from '../lib/crypto.js';
 
-  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null, wsConnected = false, onRegisterInputSetter = () => {} } = $props();
+  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null, wsConnected = false, wsInitializing = false, onRegisterInputSetter = () => {} } = $props();
 
   let codeDepleted = $derived(codeUsesRemaining !== null && codeUsesRemaining === 0);
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
@@ -794,7 +794,7 @@
         </span>
       </button>
 
-      {#if formLocked}
+      {#if formLocked && !wsInitializing}
         <p class="offline-hint">Reconnecting — submit available once connected.</p>
       {/if}
 
@@ -816,7 +816,7 @@
           {#if status === 'encrypting'}
             ENCRYPTING...
           {:else if !wsConnected}
-            RECONNECTING...
+            {wsInitializing ? 'CONNECTING...' : 'RECONNECTING...'}
           {:else if queueFull}
             QUEUED JOBS ({myQueueCount}/{queueLimit})
           {:else}

@@ -30,6 +30,7 @@
   let wsError = $state('');
   let wsState = $state('disconnected'); // connected | reconnecting | exhausted | connecting | auth_invalid | disconnected
   let wsFailedAttempts = $state(0);
+  let wsEverConnected = $state(false);
   let sessionNotice = $state('');
   let submitInputSetter = null;
   let inputToast = $state('');
@@ -126,6 +127,7 @@
       ws = createPhoneWS(token);
       wsState = ws.getConnectionState();
       wsFailedAttempts = 0;
+      wsEverConnected = false;
 
       // Open cross-tab channel for job state sync
       closeTabChannel();
@@ -202,6 +204,7 @@
       wsState = state;
       wsFailedAttempts = failedAttempts ?? 0;
       if (state === 'connected') {
+        wsEverConnected = true;
         wsError = '';
       } else if (state === 'reconnecting' || state === 'connecting') {
         wsError = 'Connection lost — reconnecting...';
@@ -493,6 +496,7 @@
     wsError = '';
     wsState = 'disconnected';
     wsFailedAttempts = 0;
+    wsEverConnected = false;
     sessionNotice = formatSessionReason(reason);
     queueState = { queue: [], activeJobId: null, avgDuration: 60 };
     pendingJobs = new Map();
@@ -546,6 +550,7 @@
       {dismissedResults}
       {clockNow}
       wsConnected={wsState === 'connected'}
+      wsInitializing={!wsEverConnected}
       onReopenDismissed={reopenDismissed}
     />
   {/if}
