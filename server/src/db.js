@@ -124,21 +124,6 @@ if (db.pragma('user_version', { simple: true }) < 5) {
   db.pragma('user_version = 5');
 }
 
-if (db.pragma('user_version', { simple: true }) < 6) {
-  // v6: TOS acceptance history — append-only log of every version a user agreed to
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS tos_history (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id     INTEGER NOT NULL REFERENCES users(id),
-      tos_version INTEGER NOT NULL,
-      accepted_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_tos_history_user
-      ON tos_history(user_id, accepted_at DESC);
-  `);
-  db.pragma('user_version = 6');
-}
-
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -175,20 +160,6 @@ const stmtFindByEmail = db.prepare('SELECT * FROM users WHERE email = ?');
 const stmtUpdateTosAccepted = db.prepare(
   'UPDATE users SET tos_accepted_at = @tos_accepted_at, tos_version = @tos_version, updated_at = @updated_at WHERE id = @id',
 );
-
-const stmtInsertTosHistory = db.prepare(
-  'INSERT INTO tos_history (user_id, tos_version, accepted_at) VALUES (@user_id, @tos_version, @accepted_at)',
-);
-
-const stmtGetTosHistory = db.prepare(
-  'SELECT tos_version, accepted_at FROM tos_history WHERE user_id = ? ORDER BY accepted_at DESC',
-);
-
-const txUpdateTosAccepted = db.transaction((id, version) => {
-  const now = Date.now();
-  stmtUpdateTosAccepted.run({ id, tos_accepted_at: now, tos_version: version, updated_at: now });
-  stmtInsertTosHistory.run({ user_id: id, tos_version: version, accepted_at: now });
-});
 
 // Invite codes
 const stmtCreateCode = db.prepare(`
@@ -355,11 +326,8 @@ export function atomicDecrementUserUses(id) {
 }
 
 export function updateTosAccepted(id, version) {
-  return txUpdateTosAccepted(id, version);
-}
-
-export function getTosHistory(userId) {
-  return stmtGetTosHistory.all(userId);
+  const now = Date.now();
+  return stmtUpdateTosAccepted.run({ id, tos_accepted_at: now, tos_version: version, updated_at: now });
 }
 
 // Invite codes

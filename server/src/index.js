@@ -44,7 +44,6 @@ import {
   updateUserUses,
   atomicDecrementUserUses,
   updateTosAccepted,
-  getTosHistory,
   recordCodeAuthFailure,
   getRecentCodeAuthFailureCount,
   pruneCodeAuthFailures,
@@ -350,7 +349,6 @@ app.get('/auth/me', (req, res) => {
     isAdmin: !!user.is_admin,
     usesRemaining: user.uses_remaining ?? null,
     tosAccepted: (user.tos_version ?? 0) >= TOS_VERSION,
-    tosHistory: getTosHistory(user.id),
   });
 });
 
