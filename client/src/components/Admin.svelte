@@ -123,30 +123,24 @@
   }
 
   // Load codes on mount, connect admin WS
-  // Scroll peek — briefly nudge down on open to show content is scrollable
-  // Also hides gradient immediately when content doesn't need to scroll
+  // Hides gradient when content doesn't need to scroll, shows it when it does.
+  // Tracks codes.length / users.length / activeTab so it re-runs after async
+  // data loads and correctly shows/hides the gradient without waiting for a scroll.
   $effect(() => {
     const el = adminBodyEl;
+    // Read reactive data to register as dependencies — re-runs when content changes
+    void codes.length;
+    void users.length;
+    void activeTab;
     if (!el) return;
     adminScrolledNearBottom = false;
-    let peekTimer = null;
-    let peekTimer2 = null;
     const rafId = requestAnimationFrame(() => {
       if (el.scrollHeight <= el.clientHeight) {
         adminScrolledNearBottom = true;
-        return;
       }
-      peekTimer = setTimeout(() => {
-        if (el.scrollHeight > el.clientHeight) {
-          el.scrollTo({ top: 80, behavior: 'smooth' });
-          peekTimer2 = setTimeout(() => el.scrollTo({ top: 0, behavior: 'smooth' }), 540);
-        }
-      }, 360);
     });
     return () => {
       cancelAnimationFrame(rafId);
-      clearTimeout(peekTimer);
-      clearTimeout(peekTimer2);
     };
   });
 
