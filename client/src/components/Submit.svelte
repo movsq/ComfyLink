@@ -38,6 +38,8 @@
 
   // ── Config overlay state ──────────────────────────────────────────────
   let configOpen = $state(false);
+  let cfgBodyEl = $state(null);
+  let cfgScrolledNearBottom = $state(false);
 
   // ── Drag state ────────────────────────────────────────────────────────
   let dragOverSlot = $state(0);       // 0=none, 1=slot1, 2=slot2
@@ -215,6 +217,33 @@
   $effect(() => {
     onRegisterInputSetter(applyPreviewInput);
     return () => onRegisterInputSetter(null);
+  });
+
+  // Scroll peek — briefly nudge down on open to show content is scrollable
+  // Also hides gradient immediately when content doesn't need to scroll
+  $effect(() => {
+    const el = cfgBodyEl;
+    if (!el) return;
+    cfgScrolledNearBottom = false;
+    let peekTimer = null;
+    let peekTimer2 = null;
+    const rafId = requestAnimationFrame(() => {
+      if (el.scrollHeight <= el.clientHeight) {
+        cfgScrolledNearBottom = true;
+        return;
+      }
+      peekTimer = setTimeout(() => {
+        if (el.scrollHeight > el.clientHeight) {
+          el.scrollTo({ top: 80, behavior: 'smooth' });
+          peekTimer2 = setTimeout(() => el.scrollTo({ top: 0, behavior: 'smooth' }), 540);
+        }
+      }, 360);
+    });
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(peekTimer);
+      clearTimeout(peekTimer2);
+    };
   });
 
   function handleFileChange1(e) {
@@ -435,7 +464,8 @@
         </button>
       </div>
 
-      <div class="cfg-body">
+      <div class="cfg-body-wrap" class:scrolled-bottom={cfgScrolledNearBottom}>
+      <div class="cfg-body" bind:this={cfgBodyEl} onscroll={() => { const el = cfgBodyEl; cfgScrolledNearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 30; }}>
         <!-- Seed + After Gen -->
         <div class="cfg-section">
           <span class="cfg-section-label">SEED &amp; BEHAVIOR</span>
@@ -604,6 +634,7 @@
           </div>
         </div>
       </div>
+      </div><!-- /cfg-body-wrap -->
 
       <div class="cfg-footer">
         <button type="button" class="cfg-done" onclick={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; clipModelOpen = false; }}>
@@ -1564,7 +1595,7 @@
   .cfg-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 60;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -1671,19 +1702,44 @@
   .cfg-close:hover { background: #1f2533; border-color: rgba(82, 116, 144, 0.4); color: #527490; }
   .cfg-close:active { transform: scale(0.88); filter: brightness(0.85); }
 
+  .cfg-body-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .cfg-body-wrap::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4rem;
+    background: linear-gradient(to bottom, transparent, rgba(14, 14, 18, 0.92));
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .cfg-body-wrap.scrolled-bottom::after {
+    opacity: 0;
+  }
+
   .cfg-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: 0;
     padding-bottom: 0.5rem;
     scrollbar-width: thin;
-    scrollbar-color: rgba(82,116,144,0.2) transparent;
+    scrollbar-color: rgba(82,116,144,0.45) transparent;
   }
   .cfg-body::-webkit-scrollbar { width: 3px; }
   .cfg-body::-webkit-scrollbar-track { background: transparent; }
-  .cfg-body::-webkit-scrollbar-thumb { background: rgba(82,116,144,0.2); border-radius: 2px; }
+  .cfg-body::-webkit-scrollbar-thumb { background: rgba(82,116,144,0.45); border-radius: 2px; }
 
   .cfg-section {
     display: flex;

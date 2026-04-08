@@ -54,6 +54,8 @@
   let _reconnectDelay = 2000; // exponential backoff state
   let wsStatus = $state('connecting'); // connecting | connected | reconnecting
   let wsStatusText = $state('Connecting live updates...');
+  let adminBodyEl = $state(null);
+  let adminScrolledNearBottom = $state(false);
 
   // Debounce timers — prevent a burst of WS events from flooding HTTP requests
   let _codesDebounce = null;
@@ -121,6 +123,33 @@
   }
 
   // Load codes on mount, connect admin WS
+  // Scroll peek — briefly nudge down on open to show content is scrollable
+  // Also hides gradient immediately when content doesn't need to scroll
+  $effect(() => {
+    const el = adminBodyEl;
+    if (!el) return;
+    adminScrolledNearBottom = false;
+    let peekTimer = null;
+    let peekTimer2 = null;
+    const rafId = requestAnimationFrame(() => {
+      if (el.scrollHeight <= el.clientHeight) {
+        adminScrolledNearBottom = true;
+        return;
+      }
+      peekTimer = setTimeout(() => {
+        if (el.scrollHeight > el.clientHeight) {
+          el.scrollTo({ top: 80, behavior: 'smooth' });
+          peekTimer2 = setTimeout(() => el.scrollTo({ top: 0, behavior: 'smooth' }), 540);
+        }
+      }, 360);
+    });
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(peekTimer);
+      clearTimeout(peekTimer2);
+    };
+  });
+
   onMount(() => {
     loadCodes();
     connectAdminWS();
@@ -335,7 +364,8 @@
       <p class="ws-status">{wsStatusText}</p>
     {/if}
 
-    <div class="admin-body">
+    <div class="admin-body-wrap" class:scrolled-bottom={adminScrolledNearBottom}>
+    <div class="admin-body" bind:this={adminBodyEl} onscroll={() => { const el = adminBodyEl; adminScrolledNearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 30; }}>
       {#if activeTab === 'codes'}
       <!-- Generate section -->
       <div class="gen-section">
@@ -512,6 +542,7 @@
       </div>
       {/if}
     </div>
+    </div><!-- /admin-body-wrap -->
   </div>
 </div>
 
@@ -519,7 +550,7 @@
   .admin-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 60;
     background: rgba(0, 0, 0, 0.72);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -612,14 +643,39 @@
   .admin-close:hover { background: rgba(255, 255, 255, 0.1); color: #e4e4e7; }
   .admin-close:active { transform: scale(0.88); filter: brightness(0.85); }
 
+  .admin-body-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .admin-body-wrap::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4rem;
+    background: linear-gradient(to bottom, transparent, rgba(14, 14, 18, 0.92));
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .admin-body-wrap.scrolled-bottom::after {
+    opacity: 0;
+  }
+
   .admin-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    scrollbar-color: rgba(255,255,255,0.28) transparent;
   }
 
   .ws-status {
@@ -635,7 +691,7 @@
   }
   .admin-body::-webkit-scrollbar { width: 4px; }
   .admin-body::-webkit-scrollbar-track { background: transparent; }
-  .admin-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .admin-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28); border-radius: 2px; }
 
   .gen-section {
     display: flex;
