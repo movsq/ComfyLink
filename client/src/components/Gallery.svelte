@@ -559,15 +559,22 @@
     justify-content: space-between;
     gap: 0.4rem;
     flex-shrink: 0;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
   }
 
-  .view-action-left,
-  .view-action-right {
+  .view-action-left {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     flex-shrink: 0;
+  }
+
+  .view-action-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 1;
   }
 
   .overlay-pill {

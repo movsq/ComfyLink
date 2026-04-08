@@ -655,11 +655,11 @@
 
   <footer class="site-footer">
     <button class="footer-btn" onclick={() => { termsViewOnly = true; showTerms = true; }}>
-      Terms of Service · Podmínky užívání
+      Terms of Service
     </button>
     <span class="footer-divider">|</span>
     <button class="footer-btn" onclick={() => { showDataNotice = true; }}>
-      How we use your data · Jak nakládáme s daty
+      How we use your data
     </button>
   </footer>
 
@@ -767,7 +767,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.45rem 1rem;
+    padding: 0.3rem 1rem;
     background: rgba(9, 9, 11, 0.72);
     backdrop-filter: blur(12px);
     border-top: 1px solid rgba(255, 255, 255, 0.05);

@@ -31,7 +31,7 @@
   let sampler = $state('euler');
   let lora = $state('none');
   let loraStrength = $state(0.75);
-  let quantization = $state('flux-2-klein-9b-Q4_K_M.gguf');
+  let quantization = $state('Flux-2-Klein-9B-KV-Q4_K_M.gguf');
   let clipModel = $state('Qwen_Qwen3-8B-Q4_K_M.gguf');
   let status = $state('idle'); // 'idle' | 'encrypting' | 'error'
   let error = $state('');
@@ -1184,8 +1184,7 @@
   .btn-clear:active { transform: scale(0.93); filter: brightness(0.85); }
 
   /* ── Inputs / textarea ──────────────────────────────────────────────── */
-  textarea,
-  input[type='number'] {
+  textarea {
     padding: 0.65rem 0.875rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
@@ -1204,6 +1203,16 @@
   }
 
   input[type='number'] {
+    padding: 0.65rem 0.875rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.75rem;
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #e4e4e7;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
     -moz-appearance: textfield;
     -webkit-appearance: textfield;
     appearance: textfield;
@@ -1252,12 +1261,7 @@
   .select-trigger {
     width: 100%;
     padding: 0.65rem 0.875rem;
-    background-color: rgba(9, 9, 11, 0.84);
-    background-image:
-      linear-gradient(rgba(123, 156, 191, 0.07) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(123, 156, 191, 0.07) 1px, transparent 1px);
-    background-size: 48px 48px;
-    background-attachment: fixed;
+    background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
     color: #e4e4e7;
@@ -1271,7 +1275,7 @@
     transition: border-color 0.2s, transform 0.12s ease, filter 0.12s ease;
   }
 
-  .select-trigger:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.18); background-color: rgba(9, 9, 11, 0.7); }
+  .select-trigger:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.18); background-color: rgba(255, 255, 255, 0.09); }
   .select-trigger:active:not(:disabled) { transform: scale(0.98); filter: brightness(0.9); }
   .select-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -1748,7 +1752,7 @@
   /* ── Mobile layout ───────────────────────────────────────────────────── */
   @media (max-width: 599px) {
     .page {
-      padding: 0.75rem 0.75rem 1.5rem;
+      padding: 0.75rem 0.75rem 3rem;
     }
     .card {
       padding: 1.25rem 1.1rem;

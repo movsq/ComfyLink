@@ -261,9 +261,9 @@
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(6px);
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: center;
-    padding: 0.75rem 0.75rem 1.25rem;
+    padding: 1rem;
     animation: fade-in 0.18s ease;
   }
 
@@ -310,7 +310,7 @@
     max-height: calc(100dvh - 2rem);
     background: rgba(12, 12, 16, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1.25rem 1.25rem 1rem 1rem;
+    border-radius: 1.25rem;
     user-select: none;
     -webkit-user-select: none;
     padding: 1rem;
