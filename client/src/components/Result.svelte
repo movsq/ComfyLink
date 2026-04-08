@@ -156,11 +156,12 @@
   onclick={(e) => { if (!isGhost && e.target === e.currentTarget) onClose(); }}
 >
   <div class="modal">
-    <button class="close-btn" onclick={onClose} aria-label="Close">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    </button>
-
-    <span class="modal-label">RESULT</span>
+    <div class="modal-header">
+      <span class="modal-label">RESULT</span>
+      <button class="close-btn" onclick={onClose} aria-label="Close">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
 
     {#if decrypting}
       <p class="status">DECRYPTING…</p>
@@ -172,75 +173,70 @@
         <!-- svelte-ignore a11y_interactive_supports_focus -->
         <img src={imageUrl} alt="Generated result" class="result-image" />
 
-        <!-- Overlay controls -->
+        <!-- Overlay: download button only -->
         <div class="img-overlay">
-          <!-- Top-right: Download -->
           <a href={imageUrl} download="result.png" class="overlay-btn overlay-download" aria-label="Download image">
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M10 3v10M6 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </a>
-
-          <!-- Bottom bar: actions -->
-          <div class="overlay-bar">
-            {#if userType === 'google'}
-              {#if saved}
-                <span class="overlay-pill overlay-pill-saved">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Saved
-                </span>
-              {:else if saving || savePending}
-                <span class="overlay-pill overlay-pill-pending">
-                  {saving ? 'Saving…' : 'Unlocking…'}
-                </span>
-              {:else}
-                <button class="overlay-pill overlay-pill-save" onclick={handleSave}>
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 9l2.5 2.5L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Save
-                </button>
-                <button class="overlay-pill overlay-pill-discard" onclick={onDone}>
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                  Discard
-                </button>
-              {/if}
-            {:else}
-              <button class="overlay-pill overlay-pill-discard" onclick={onDone}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                Discard
-              </button>
-            {/if}
-
-            <!-- Use as Input -->
-            <div class="use-input-wrap">
-              <button
-                class="overlay-pill overlay-pill-use"
-                onclick={() => { useInputOpen = !useInputOpen; inputAssignError = ''; }}
-                disabled={!imageBytes || assigningInput}
-                aria-haspopup="true"
-                aria-expanded={useInputOpen}
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 8h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                {assigningInput ? 'Assigning…' : 'Use as Input'}
-                <span class="overlay-chevron" class:open={useInputOpen}>
-                  <svg width="9" height="9" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
-              </button>
-              {#if useInputOpen}
-                <div class="use-input-picker" role="menu" aria-label="Select input slot">
-                  <button class="picker-btn" role="menuitem" onclick={() => assignToInput(1)} disabled={assigningInput}>Input 1</button>
-                  <button class="picker-btn" role="menuitem" onclick={() => assignToInput(2)} disabled={assigningInput}>Input 2</button>
-                </div>
-              {/if}
-            </div>
-
-            <!-- Close -->
-            <button class="overlay-pill overlay-pill-close" onclick={saved ? onDone : onClose}>
-              Close
-            </button>
-          </div>
         </div>
       </div>
+
+      <!-- Action bar below the image -->
+      <div class="action-bar">
+        {#if userType === 'google'}
+          {#if saved}
+            <span class="overlay-pill overlay-pill-saved">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Saved
+            </span>
+          {:else if saving || savePending}
+            <span class="overlay-pill overlay-pill-pending">
+              {saving ? 'Saving…' : 'Unlocking…'}
+            </span>
+          {:else}
+            <button class="overlay-pill overlay-pill-save" onclick={handleSave}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 9l2.5 2.5L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Save
+            </button>
+            <button class="overlay-pill overlay-pill-discard" onclick={onDone}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              Discard
+            </button>
+          {/if}
+        {:else}
+          <button class="overlay-pill overlay-pill-discard" onclick={onDone}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Discard
+          </button>
+        {/if}
+
+        <!-- Use as Input -->
+        <div class="use-input-wrap">
+          <button
+            class="overlay-pill overlay-pill-use"
+            onclick={() => { useInputOpen = !useInputOpen; inputAssignError = ''; }}
+            disabled={!imageBytes || assigningInput}
+            aria-haspopup="true"
+            aria-expanded={useInputOpen}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 8h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            {assigningInput ? 'Assigning…' : 'Use as Input'}
+            <span class="overlay-chevron" class:open={useInputOpen}>
+              <svg width="9" height="9" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+          </button>
+          {#if useInputOpen}
+            <div class="use-input-picker" role="menu" aria-label="Select input slot">
+              <button class="picker-btn" role="menuitem" onclick={() => assignToInput(1)} disabled={assigningInput}>Input 1</button>
+              <button class="picker-btn" role="menuitem" onclick={() => assignToInput(2)} disabled={assigningInput}>Input 2</button>
+            </div>
+          {/if}
+        </div>
+      </div>
+
       {#if inputAssignError}
         <p class="save-error">{inputAssignError}</p>
       {/if}
@@ -283,9 +279,9 @@
     animation: none;
   }
 
-  .backdrop.ghost .close-btn,
+  .backdrop.ghost .modal-header,
   .backdrop.ghost .img-overlay,
-  .backdrop.ghost .modal-label {
+  .backdrop.ghost .action-bar {
     opacity: 0;
   }
 
@@ -334,10 +330,14 @@
     to   { transform: translateY(0);    opacity: 1; }
   }
 
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
   .close-btn {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
@@ -431,20 +431,13 @@
     pointer-events: auto;
   }
 
-  /* Bottom action bar */
-  .overlay-bar {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+  /* Action bar below the image */
+  .action-bar {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     flex-wrap: wrap;
     gap: 0.4rem;
-    padding: 2.5rem 0.6rem 0.6rem;
-    background: linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 60%, transparent 100%);
-    border-radius: 0 0 0.875rem 0.875rem;
-    pointer-events: auto;
+    flex-shrink: 0;
   }
 
   /* Shared pill style */
@@ -452,7 +445,9 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.42rem 0.75rem;
+    padding: 0 0.75rem;
+    height: 2rem;
+    box-sizing: border-box;
     border-radius: 3rem;
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
@@ -568,14 +563,12 @@
     position: relative;
   }
 
-  .overlay-pill-close {
-    margin-left: auto;
-  }
-
   /* ── Use-as-input picker ─────────────────────────────────────────────── */
   .use-input-wrap {
     position: relative;
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
   }
 
   .use-input-picker {

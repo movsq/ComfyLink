@@ -14,6 +14,7 @@
 
   // Full-view state
   let viewingId = $state(null);
+  let viewIndex = $state(-1);
   let viewUrl = $state(null);
   let viewBytes = $state(null);
   let viewLoading = $state(false);
@@ -74,8 +75,10 @@
     }
   }
 
-  async function viewFull(id) {
+  async function viewFull(index) {
+    const id = items[index].id;
     viewingId = id;
+    viewIndex = index;
     viewUrl = null;
     viewBytes = null;
     viewLoading = true;
@@ -100,11 +103,20 @@
   function closeView() {
     if (viewUrl) URL.revokeObjectURL(viewUrl);
     viewingId = null;
+    viewIndex = -1;
     viewUrl = null;
     viewBytes = null;
     viewError = '';
     useInputOpen = false;
     inputAssignError = '';
+  }
+
+  function prevImage() {
+    if (viewIndex > 0) viewFull(viewIndex - 1);
+  }
+
+  function nextImage() {
+    if (viewIndex < items.length - 1) viewFull(viewIndex + 1);
   }
 
   async function assignToInput(slot) {
@@ -177,8 +189,8 @@
       <p class="empty">No saved results yet.</p>
     {:else}
       <div class="grid">
-        {#each items as item (item.id)}
-          <button class="thumb-card" onclick={() => viewFull(item.id)} aria-label="View image">
+        {#each items as item, i (item.id)}
+          <button class="thumb-card" onclick={() => viewFull(i)} aria-label="View image">
             {#if item._thumbUrl}
               <img src={item._thumbUrl} alt="" class="thumb-img" />
             {:else}
@@ -203,42 +215,72 @@
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
   <div class="view-backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) closeView(); }}>
     <div class="view-panel">
-      <button class="close-btn view-close" onclick={closeView} aria-label="Close">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      </button>
+      <div class="view-modal-header">
+        <span class="view-modal-label">VAULT</span>
+        <button class="close-btn" onclick={closeView} aria-label="Close">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
 
       {#if viewLoading}
         <p class="status">DECRYPTING…</p>
       {:else if viewError}
         <p class="error">{viewError}</p>
       {:else if viewUrl}
-        <img src={viewUrl} alt="Saved result" class="view-img" />
-        <div class="view-actions">
-          <a href={viewUrl} download="result.png" class="btn btn-accent">Download</a>
-          <button class="btn btn-danger" onclick={() => handleDelete(viewingId)} disabled={deletingId === viewingId}>
-            {deletingId === viewingId ? 'Deleting…' : 'Delete'}
-          </button>
-          <button class="btn btn-ghost" onclick={closeView}>Close</button>
-        </div>
-        <div class="use-input-row">
-          <div class="use-input-wrap">
-            <button
-              class="btn btn-ghost"
-              onclick={() => { useInputOpen = !useInputOpen; inputAssignError = ''; }}
-              disabled={!viewBytes || assigningInput}
-              aria-haspopup="true"
-              aria-expanded={useInputOpen}
-            >
-              {assigningInput ? 'Assigning…' : 'Use as Input'}
-            </button>
-            {#if useInputOpen}
-              <div class="use-input-picker" role="menu" aria-label="Select input slot">
-                <button class="picker-btn" role="menuitem" onclick={() => assignToInput(1)} disabled={assigningInput}>Input 1</button>
-                <button class="picker-btn" role="menuitem" onclick={() => assignToInput(2)} disabled={assigningInput}>Input 2</button>
-              </div>
-            {/if}
+        <div class="view-image-wrap">
+          <img src={viewUrl} alt="Saved result" class="view-result-image" />
+          <div class="view-img-overlay">
+            <a href={viewUrl} download="result.png" class="view-overlay-download" aria-label="Download image">
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M10 3v10M6 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </a>
           </div>
         </div>
+
+        <div class="view-action-bar">
+          <div class="view-action-left">
+            <button class="overlay-pill" onclick={prevImage} disabled={viewIndex <= 0} aria-label="Previous image">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M8 2L4 6l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Prev
+            </button>
+            <button class="overlay-pill" onclick={nextImage} disabled={viewIndex >= items.length - 1} aria-label="Next image">
+              Next
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+
+          <div class="view-action-right">
+            <div class="view-use-input-wrap">
+              <button
+                class="overlay-pill overlay-pill-use"
+                onclick={() => { useInputOpen = !useInputOpen; inputAssignError = ''; }}
+                disabled={!viewBytes || assigningInput}
+                aria-haspopup="true"
+                aria-expanded={useInputOpen}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="5" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 8h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                {assigningInput ? 'Assigning…' : 'Use as Input'}
+                <span class="overlay-chevron" class:open={useInputOpen}>
+                  <svg width="9" height="9" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+              </button>
+              {#if useInputOpen}
+                <div class="view-input-picker" role="menu" aria-label="Select input slot">
+                  <button class="picker-btn" role="menuitem" onclick={() => assignToInput(1)} disabled={assigningInput}>Input 1</button>
+                  <button class="picker-btn" role="menuitem" onclick={() => assignToInput(2)} disabled={assigningInput}>Input 2</button>
+                </div>
+              {/if}
+            </div>
+
+            <button class="overlay-pill overlay-pill-discard" onclick={() => handleDelete(viewingId)} disabled={deletingId === viewingId}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              {deletingId === viewingId ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+
         {#if inputAssignError}
           <p class="error">{inputAssignError}</p>
         {/if}
@@ -384,97 +426,223 @@
 
   .view-panel {
     position: relative;
-    max-width: 600px; width: 100%;
+    width: 100%;
+    max-width: 520px;
     max-height: calc(100dvh - 2rem);
-    display: flex; flex-direction: column;
-    gap: 0.75rem; align-items: center;
+    background: rgba(12, 12, 16, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1.25rem 1.25rem 1rem 1rem;
+    padding: 1rem;
+    backdrop-filter: blur(24px);
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
+    animation: slide-up 0.26s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .view-close {
-    position: absolute; top: -0.5rem; right: -0.5rem; z-index: 1;
+  @media (min-width: 480px) {
+    .view-panel {
+      border-radius: 1.25rem;
+      padding: 1.25rem;
+      gap: 0.75rem;
+      max-height: calc(100dvh - 3rem);
+    }
   }
 
-  .view-img {
-    width: 100%; max-height: calc(100dvh - 8rem);
-    object-fit: contain;
+  @keyframes slide-up {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+
+  .view-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .view-modal-label {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.22em;
+    color: #527490;
+    font-weight: 400;
+  }
+
+  .view-image-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
     border-radius: 0.875rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+    user-select: auto;
+    -webkit-user-select: auto;
+    -webkit-touch-callout: default;
+  }
+
+  .view-result-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    border-radius: 0.875rem;
     -webkit-touch-callout: default;
     user-select: none;
     -webkit-user-select: none;
+    pointer-events: auto;
   }
 
-  .view-actions {
+  .view-img-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
     display: flex;
-    gap: 0.75rem;
-    width: 100%;
-    max-width: 520px;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
+    justify-content: space-between;
+    border-radius: 0.875rem;
   }
 
-  .use-input-row {
-    width: 100%;
-    max-width: 520px;
+  .view-overlay-download {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    pointer-events: auto;
+    padding: 0.5rem;
+    border-radius: 50%;
+    background: rgba(9, 9, 11, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #c2ccd5;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
     display: flex;
+    align-items: center;
     justify-content: center;
+    transition: background 0.15s, transform 0.1s, color 0.15s;
+    text-decoration: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
-  .use-input-wrap {
-    width: 100%;
-    max-width: 320px;
+  .view-overlay-download:hover {
+    background: rgba(82, 116, 144, 0.55);
+    color: #eef3f8;
+  }
+
+  .view-overlay-download:active { transform: scale(0.88); }
+
+  .view-action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+  }
+
+  .view-action-left,
+  .view-action-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .overlay-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 0.75rem;
+    height: 2rem;
+    border-radius: 3rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(9, 9, 11, 0.72);
+    color: #c2ccd5;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background 0.15s, border-color 0.15s, transform 0.1s, color 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .overlay-pill:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #eef3f8;
+  }
+
+  .overlay-pill:active { transform: scale(0.93); }
+
+  .overlay-pill:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .overlay-pill-discard {
+    color: #c47070;
+    border-color: rgba(196, 112, 112, 0.35);
+  }
+
+  .overlay-pill-discard:hover {
+    background: rgba(196, 112, 112, 0.28);
+    border-color: rgba(196, 112, 112, 0.6);
+    color: #e07070;
+  }
+
+  .overlay-chevron {
+    display: inline-flex;
+    align-items: center;
+    opacity: 0.7;
+    transition: transform 0.18s ease;
+  }
+
+  .overlay-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .overlay-pill-use {
     position: relative;
   }
 
-  .btn {
-    flex: 1;
-    min-width: 120px;
-    padding: 0.7rem;
-    border: none; border-radius: 3rem;
-    font-family: 'DM Mono', monospace;
-    font-size: 0.72rem; letter-spacing: 0.08em;
-    cursor: pointer; text-align: center; text-decoration: none;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: transform 0.12s, filter 0.12s, background 0.2s;
-  }
-  .btn:active { transform: scale(0.95); filter: brightness(0.85); }
-
-  .btn-accent { background: #527490; color: #09090b; }
-  .btn-accent:hover { background: #7d9db6; }
-
-  .btn-danger {
-    background: rgba(196, 112, 112, 0.15);
-    color: #c47070;
-    border: 1px solid rgba(196, 112, 112, 0.2);
-  }
-  .btn-danger:hover { background: rgba(196, 112, 112, 0.25); }
-  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-ghost {
-    background: rgba(255, 255, 255, 0.06);
-    color: #c2ccd5;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e4e4e7;
+  .view-use-input-wrap {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
   }
 
-  .use-input-picker {
+  .view-input-picker {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: calc(100% + 0.45rem);
+    bottom: calc(100% + 0.4rem);
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.4rem;
-    padding: 0.45rem;
+    gap: 0.35rem;
+    padding: 0.4rem;
     border-radius: 0.75rem;
-    background: rgba(9, 9, 11, 0.96);
-    border: 1px solid rgba(82, 116, 144, 0.35);
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32);
+    background: rgba(9, 9, 11, 0.94);
+    border: 1px solid rgba(82, 116, 144, 0.4);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 10;
+    min-width: 140px;
   }
 
   .picker-btn {
