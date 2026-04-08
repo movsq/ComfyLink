@@ -10,6 +10,10 @@
   let inviteCode = $state('');
   let googleIdToken = $state(null);
   let accessCode = $state('');
+  let noticeDismissed = $state(false);
+
+  // Reset dismiss flag whenever a new notice arrives
+  $effect(() => { if (notice) noticeDismissed = false; });
 
   // Wait for Google Identity Services to load, then initialize
   let gsiReady = $state(false);
@@ -150,8 +154,11 @@
         {/if}
       </div>
 
-      {#if notice}
-        <p class="notice">{notice}</p>
+      {#if notice && !noticeDismissed}
+        <div class="notice">
+          <span>{notice}</span>
+          <button type="button" class="notice-dismiss" onclick={() => noticeDismissed = true} aria-label="Dismiss">×</button>
+        </div>
       {/if}
 
       {#if error}
@@ -188,8 +195,11 @@
         {loading ? 'VERIFYING…' : 'ENTER'}
       </button>
 
-      {#if notice}
-        <p class="notice">{notice}</p>
+      {#if notice && !noticeDismissed}
+        <div class="notice">
+          <span>{notice}</span>
+          <button type="button" class="notice-dismiss" onclick={() => noticeDismissed = true} aria-label="Dismiss">×</button>
+        </div>
       {/if}
 
       {#if error}
@@ -234,8 +244,11 @@
         </button>
       {/if}
 
-      {#if notice}
-        <p class="notice">{notice}</p>
+      {#if notice && !noticeDismissed}
+        <div class="notice">
+          <span>{notice}</span>
+          <button type="button" class="notice-dismiss" onclick={() => noticeDismissed = true} aria-label="Dismiss">×</button>
+        </div>
       {/if}
 
       {#if error}
@@ -258,8 +271,11 @@
         <p>Your account is pending admin approval. You'll be able to sign in once approved.</p>
       </div>
 
-      {#if notice}
-        <p class="notice">{notice}</p>
+      {#if notice && !noticeDismissed}
+        <div class="notice">
+          <span>{notice}</span>
+          <button type="button" class="notice-dismiss" onclick={() => noticeDismissed = true} aria-label="Dismiss">×</button>
+        </div>
       {/if}
 
       <button type="button" onclick={() => { step = 'google'; error = ''; }}>
@@ -340,7 +356,30 @@
     font-family: 'DM Mono', monospace;
     font-size: 0.68rem;
     letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .notice span {
+    flex: 1;
     text-align: center;
+  }
+
+  .notice-dismiss {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #f3d5b2;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    opacity: 0.6;
+  }
+
+  .notice-dismiss:hover {
+    opacity: 1;
   }
 
   .google-btn-wrap {

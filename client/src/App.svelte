@@ -111,6 +111,7 @@
   // ── Login ──────────────────────────────────────────────────────────────────
   function handleLogin(newToken, newUser) {
     loginExiting = true;
+    sessionNotice = ''; // clear immediately so it's gone before exit animation completes
 
     setTimeout(() => {
       loginExiting = false;
@@ -212,11 +213,14 @@
       } else if (state === 'exhausted') {
         wsError = 'Reconnect failed. Tap Retry Connection to resume live updates.';
       } else if (state === 'auth_invalid') {
-        wsError = 'Session expired. Please sign in again.';
+        wsError = codeUsesRemaining === 0
+          ? 'Your access code has no remaining uses.'
+          : 'Session expired. Please sign in again.';
       }
     });
 
     ws.on('session_invalid', ({ reason }) => {
+      if (reason === 'code_exhausted') return; // stay on submit screen; wsError set via connection_state
       forceRelogin(reason);
     });
 
