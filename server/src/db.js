@@ -124,6 +124,28 @@ if (db.pragma('user_version', { simple: true }) < 5) {
   db.pragma('user_version = 5');
 }
 
+if (db.pragma('user_version', { simple: true }) < 6) {
+  // v6: Job audit log for legal compliance (ČTÚ AI Act, GDPR)
+  // Logs IP address + identity for every job submitted. NO image blobs stored.
+  // Entries are automatically pruned after 6 months (see pruneJobAuditLogsOlderThan).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS job_audit_log (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id      TEXT    NOT NULL,
+      user_type   TEXT    NOT NULL CHECK (user_type IN ('google', 'code')),
+      user_id     INTEGER,
+      google_sub  TEXT,
+      email       TEXT,
+      code_id     INTEGER,
+      ip_address  TEXT    NOT NULL,
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_audit_log_created_at
+      ON job_audit_log(created_at);
+  `);
+  db.pragma('user_version = 6');
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -263,6 +285,15 @@ const stmtIsTokenRevoked = db.prepare(
 );
 const stmtPruneRevokedTokens = db.prepare(
   'DELETE FROM revoked_tokens WHERE expires_at < ?',
+);
+
+// Job audit log
+const stmtCreateJobAuditLog = db.prepare(`
+  INSERT INTO job_audit_log (job_id, user_type, user_id, google_sub, email, code_id, ip_address, created_at)
+  VALUES (@job_id, @user_type, @user_id, @google_sub, @email, @code_id, @ip_address, @created_at)
+`);
+const stmtPruneJobAuditLogs = db.prepare(
+  'DELETE FROM job_audit_log WHERE created_at < ?',
 );
 
 // Global code auth failure tracking (brute-force protection)
@@ -505,6 +536,33 @@ export function isTokenRevoked(jti) {
 
 export function pruneRevokedTokens() {
   return stmtPruneRevokedTokens.run(Date.now());
+}
+
+// Job audit log
+
+/**
+ * Record a job submission for compliance logging.
+ * Stores identity + IP + timestamp. Never stores image blobs or payloads.
+ */
+export function createJobAuditLog({ jobId, userType, userId = null, googleSub = null, email = null, codeId = null, ipAddress }) {
+  return stmtCreateJobAuditLog.run({
+    job_id: jobId,
+    user_type: userType,
+    user_id: userId ?? null,
+    google_sub: googleSub ?? null,
+    email: email ?? null,
+    code_id: codeId ?? null,
+    ip_address: ipAddress,
+    created_at: Date.now(),
+  });
+}
+
+/**
+ * Delete audit log entries older than maxAgeMs (e.g. 6 × 30 days).
+ * Called on a daily interval by the server.
+ */
+export function pruneJobAuditLogsOlderThan(maxAgeMs) {
+  return stmtPruneJobAuditLogs.run(Date.now() - maxAgeMs);
 }
 
 export default db;

@@ -64,7 +64,8 @@ Your PC runs ComfyUI and a lightweight Python bridge. It connects *outbound* to 
 - **Relay:** receives only encrypted blobs; cannot read prompts, reference images, or results even under compulsion
 - **Vault:** encrypted blobs stored server-side; your key never leaves your device; a lawful data request produces ciphertext the server cannot decrypt
 - **ComfyUI:** ComfyLink configures it with hardening flags (`--disable-metadata`, `--database-url sqlite:///:memory:`, `--verbose CRITICAL`) to reduce data retention; ComfyUI is a third-party component running on the deployer's machine — we don't control its internals
-- **pc-client:** deletes each prompt from ComfyUI's in-memory history immediately after the result image is downloaded
+- **pc-client:** deletes each prompt from ComfyUI's in-memory history immediately after the result image is downloaded; every generated PNG receives embedded `AI_Generated: yes` metadata (ČTÚ AI Act compliance)
+- **Audit log:** each job submission records IP address, timestamp, job ID, and identity (Google sub + email for Google users; code ID for access-code users) — no image content ever enters the log; entries are automatically deleted after 6 months
 
 Full detail, the deployer legal position on compelled decryption, and a plaintext metadata audit → [docs/PRIVACY.md](docs/PRIVACY.md)
 

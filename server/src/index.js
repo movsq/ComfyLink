@@ -49,6 +49,8 @@ import {
   pruneCodeAuthFailures,
   insertRevokedToken,
   pruneRevokedTokens,
+  createJobAuditLog,
+  pruneJobAuditLogsOlderThan,
 } from './db.js';
 import {
   createJob,
@@ -855,6 +857,10 @@ setInterval(() => {
 // Prune code_auth_failures older than 5 minutes every 5 minutes
 setInterval(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
 
+// Prune job audit log entries older than 6 months once per day
+const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
+setInterval(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
+
 function getUpgradeIp(req) {
   // When behind a reverse proxy, trust the first X-Forwarded-For hop.
   // Otherwise use the raw socket address (matches trust proxy conditional below).
@@ -925,7 +931,7 @@ server.on('upgrade', async (req, socket, head) => {
   if (url.pathname === '/ws/phone') {
     // Auth is performed via the first WebSocket message (type: 'auth', token: '...'),
     // NOT via a URL query parameter, so JWTs are never written to proxy access logs.
-    wss.handleUpgrade(req, socket, head, (ws) => handlePhoneSocket(ws));
+    wss.handleUpgrade(req, socket, head, (ws) => handlePhoneSocket(ws, ip));
     return;
   }
 
@@ -1073,7 +1079,7 @@ function handlePcMessage(raw) {
 }
 
 // ── Phone socket handler ──────────────────────────────────────────────────────
-function handlePhoneSocket(ws) {
+function handlePhoneSocket(ws, clientIp) {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
@@ -1131,11 +1137,11 @@ function handlePhoneSocket(ws) {
     }
 
     sendJson(ws, { type: 'auth_ok' });
-    handlePhoneSocketAuthenticated(ws, payload, msg.token);
+    handlePhoneSocketAuthenticated(ws, payload, msg.token, clientIp);
   });
 }
 
-function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken) {
+function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken, clientIp) {
   console.log(`[phone] Connected (${jwtPayload.type === 'code_user' ? 'code' : 'google'}).`);
 
   // Stable userId for quota accounting (shared per code)
@@ -1240,7 +1246,7 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken) {
         return;
       }
       timestamps.push(now);
-      handleJobSubmit(ws, msg, jwtPayload, queueUserId, wsSessionId);
+      handleJobSubmit(ws, msg, jwtPayload, queueUserId, wsSessionId, clientIp);
     } else if (msg.type === 'cancel') {
       const reason = getSessionInvalidReason(jwtPayload, rawToken);
       if (reason) {
@@ -1287,7 +1293,7 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken) {
   });
 }
 
-function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId) {
+function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId, clientIp) {
   if (!jwtPayload || !queueUserId) {
     console.error('[BUG] handleJobSubmit called without required params');
     sendJson(phoneWs, { type: 'error', message: 'Internal error' });
@@ -1333,6 +1339,10 @@ function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId) {
   phoneWs._lastSubmit = { hash: payloadHash, at: now };
 
   // ── Google user quota check ────────────────────────────────────────────────────
+  // Capture identity fields here so the audit log can reference them after createJob.
+  let _auditGoogleSub = null;
+  let _auditEmail = null;
+  let _auditUserId = null;
   if (jwtPayload?.type !== 'code_user' && jwtPayload?.userId) {
     const userRow = getUserById(jwtPayload.userId);
     if (!userRow) {
@@ -1364,6 +1374,9 @@ function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId) {
       notifyUserSockets(jwtPayload.userId, newRemaining);
     }
     // null = unlimited — proceed without decrement
+    _auditUserId = userRow.id;
+    _auditGoogleSub = userRow.google_sub;
+    _auditEmail = userRow.email;
   }
 
   if (jwtPayload?.type === 'code_user') {
@@ -1392,6 +1405,24 @@ function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId) {
 
   const jobId = uuidv4();
   createJob(jobId, phoneWs, queueUserId, wsSessionId, msg.payload);
+
+  // ── Compliance audit log — records identity + IP + timestamp for every job ──
+  // NO image blobs or encrypted payload are stored; only identity metadata.
+  try {
+    createJobAuditLog({
+      jobId,
+      userType: jwtPayload?.type === 'code_user' ? 'code' : 'google',
+      userId: _auditUserId,
+      googleSub: _auditGoogleSub,
+      email: _auditEmail,
+      codeId: jwtPayload?.type === 'code_user' ? (jwtPayload.codeId ?? null) : null,
+      ipAddress: clientIp ?? 'unknown',
+    });
+  } catch (err) {
+    // Audit log failure must never block job creation
+    console.error('[audit] Failed to write job audit log:', err.message);
+  }
+
   sendJson(phoneWs, { type: 'queued', jobId });
   console.log(`[queue] Job ${jobId} added to queue.`);
 

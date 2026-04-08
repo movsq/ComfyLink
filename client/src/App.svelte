@@ -8,6 +8,7 @@
   import VaultSettings from './components/VaultSettings.svelte';
   import Gallery from './components/Gallery.svelte';
   import TermsModal from './components/TermsModal.svelte';
+  import DataNoticeModal from './components/DataNoticeModal.svelte';
   import { createPhoneWS } from './lib/ws.js';
   import { getVaultInfo, logoutToken } from './lib/api.js';
   import { onDestroy } from 'svelte';
@@ -40,6 +41,8 @@
   let showAdmin = $state(false);
   let showGallery = $state(false);
   let showTerms = $state(false);
+  let termsViewOnly = $state(false);
+  let showDataNotice = $state(false);
   let tosAccepted = $state(false);
 
   // Queue state
@@ -640,10 +643,25 @@
     <TermsModal
       {token}
       isCodeUser={!isGoogleUser}
-      onAccepted={() => { tosAccepted = true; showTerms = false; }}
-      onDeclined={() => { showTerms = false; }}
+      viewOnly={termsViewOnly}
+      onAccepted={() => { tosAccepted = true; showTerms = false; termsViewOnly = false; }}
+      onDeclined={() => { showTerms = false; termsViewOnly = false; }}
     />
   {/if}
+
+  {#if showDataNotice}
+    <DataNoticeModal onClose={() => { showDataNotice = false; }} />
+  {/if}
+
+  <footer class="site-footer">
+    <button class="footer-btn" onclick={() => { termsViewOnly = true; showTerms = true; }}>
+      Terms of Service · Podmínky užívání
+    </button>
+    <span class="footer-divider">|</span>
+    <button class="footer-btn" onclick={() => { showDataNotice = true; }}>
+      How we use your data · Jak nakládáme s daty
+    </button>
+  </footer>
 
   {#if inputToast}
     <div class="input-toast" role="status" aria-live="polite">{inputToast}</div>
@@ -739,6 +757,43 @@
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
+  .site-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.45rem 1rem;
+    background: rgba(9, 9, 11, 0.72);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .footer-btn {
+    background: none;
+    border: none;
+    padding: 0.15rem 0.2rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    transition: color 0.15s;
+    line-height: 1;
+  }
+  .footer-btn:hover { color: rgba(255, 255, 255, 0.5); }
+
+  .footer-divider {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: rgba(255, 255, 255, 0.1);
+    line-height: 1;
+    user-select: none;
+  }
 
 
 </style>

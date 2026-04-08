@@ -1,7 +1,7 @@
 <script>
   import { acceptTos, getTos } from '../lib/api.js';
 
-  let { token, isCodeUser = false, onAccepted, onDeclined } = $props();
+  let { token, isCodeUser = false, viewOnly = false, onAccepted, onDeclined } = $props();
 
   let loading = $state(false);
   let error = $state('');
@@ -21,6 +21,8 @@
     if (!scrollEl) return;
     // Re-run whenever content or lang changes so scrollHeight is accurate.
     const _deps = [tosHtml, lang];
+    // In view-only mode the scroll gate is not enforced.
+    if (viewOnly) { scrolledToBottom = true; return; }
     // Reset to top; check if content already fits without scrolling.
     scrollEl.scrollTop = 0;
     // Defer one tick so the DOM has rendered the new content before measuring.
@@ -80,12 +82,18 @@
     {/if}
 
     <div class="actions">
-      <button class="btn-primary" onclick={handleAccept} disabled={loading || !scrolledToBottom}>
-        {loading ? (lang === 'en' ? 'SAVING…' : 'UKLÁDÁM…') : (lang === 'en' ? 'I UNDERSTAND AND AGREE' : 'ROZUMÍM A SOUHLASÍM')}
-      </button>
-      <button class="btn-secondary" onclick={onDeclined} disabled={loading}>
-        {lang === 'en' ? 'DECLINE' : 'ODMÍTNOUT'}
-      </button>
+      {#if viewOnly}
+        <button class="btn-primary" onclick={onDeclined}>
+          {lang === 'en' ? 'CLOSE' : 'ZAVŘÍT'}
+        </button>
+      {:else}
+        <button class="btn-primary" onclick={handleAccept} disabled={loading || !scrolledToBottom}>
+          {loading ? (lang === 'en' ? 'SAVING…' : 'UKLÁDÁM…') : (lang === 'en' ? 'I UNDERSTAND AND AGREE' : 'ROZUMÍM A SOUHLASÍM')}
+        </button>
+        <button class="btn-secondary" onclick={onDeclined} disabled={loading}>
+          {lang === 'en' ? 'DECLINE' : 'ODMÍTNOUT'}
+        </button>
+      {/if}
     </div>
   </div>
 </div>
