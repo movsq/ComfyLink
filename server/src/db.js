@@ -68,6 +68,12 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_stored_results_user_date
     ON stored_results(user_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS code_auth_failures (
+    attempted_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_code_auth_failures_at
+    ON code_auth_failures(attempted_at);
 `);
 
 // ── Runtime migrations ───────────────────────────────────────────────────────
@@ -87,12 +93,6 @@ if (db.pragma('user_version', { simple: true }) < 2) {
   db.pragma('user_version = 2');
 }
 
-if (db.pragma('user_version', { simple: true }) < 4) {
-  // v4: track which TOS version the user accepted; NULL or 0 means must re-accept current version
-  try { db.exec('ALTER TABLE users ADD COLUMN tos_version INTEGER DEFAULT NULL'); } catch { /* already exists on fresh DB */ }
-  db.pragma('user_version = 4');
-}
-
 if (db.pragma('user_version', { simple: true }) < 3) {
   // v3: global code-auth failure log for brute-force protection
   db.exec(`
@@ -103,6 +103,12 @@ if (db.pragma('user_version', { simple: true }) < 3) {
       ON code_auth_failures(attempted_at);
   `);
   db.pragma('user_version = 3');
+}
+
+if (db.pragma('user_version', { simple: true }) < 4) {
+  // v4: track which TOS version the user accepted; NULL or 0 means must re-accept current version
+  try { db.exec('ALTER TABLE users ADD COLUMN tos_version INTEGER DEFAULT NULL'); } catch { /* already exists on fresh DB */ }
+  db.pragma('user_version = 4');
 }
 
 if (db.pragma('user_version', { simple: true }) < 5) {
