@@ -79,24 +79,14 @@ ssh user@your-vps "cd /root/flux2-9b-klein-remote && docker compose up -d --buil
 
 ## Cloudflare proxy (optional — orange cloud ☁)
 
-If your DNS record points to the VPS through Cloudflare's proxy (the orange cloud in the Cloudflare dashboard), Caddy will only see Cloudflare's edge node IP, not the real visitor IP. This breaks IP-based rate-limiting and the audit log, and causes OAuth redirects to misbehave if Cloudflare strips the `X-Forwarded-Proto` header.
+The `Caddyfile` ships with the Cloudflare trusted-proxy IP ranges **enabled by default**. This is safe regardless of whether you use Cloudflare: if traffic does not come through Cloudflare's edge, those IP ranges never appear as the upstream address and the block is a pure no-op.
 
-**When to do this:** your `FLUX_KLEIN_HOST` domain has the Cloudflare proxy enabled (orange cloud). Not needed for grey-cloud (DNS-only), Tailscale, or direct-IP deployments.
+When the Cloudflare proxy **is** active (orange cloud in your DNS dashboard), this block is what lets Caddy extract the real visitor IP instead of a Cloudflare edge IP. Without it, IP-based rate-limiting and the audit log would record Cloudflare's address, and OAuth redirects could misbehave.
 
-**Steps:**
+**You only need to touch this if you want to remove it** — e.g. you use a different CDN whose ranges you want to list instead. In that case, comment out or replace the global `{ servers { trusted_proxies ... } }` block near the top of `Caddyfile` and redeploy:
 
-1. Open `Caddyfile` and uncomment the global options block near the top:
-   ```caddyfile
-   {
-       servers {
-           trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/20 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
-       }
-   }
-   ```
-   This tells Caddy to trust the IP ranges Cloudflare uses for its edge nodes, so it correctly extracts the real visitor IP from `CF-Connecting-IP` / `X-Forwarded-For`.
+```bash
+docker compose up -d --force-recreate
+```
 
-2. The `header_up X-Forwarded-Proto https` directive already present in `handle @backend_routes` ensures the Node.js relay always sees the correct protocol for OAuth redirect validation — no additional changes needed there.
-
-3. Redeploy: `docker compose up -d --force-recreate`
-
-> **Keep the IP list current.** Cloudflare occasionally expands its ranges. Check [cloudflare.com/ips](https://www.cloudflare.com/ips/) and update the `trusted_proxies` line if you add ranges in future.
+> **Keeping the IP list current.** Cloudflare occasionally expands its ranges. Check [cloudflare.com/ips](https://www.cloudflare.com/ips/) and update the `trusted_proxies` line as needed.
