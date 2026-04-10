@@ -1,7 +1,7 @@
 <script>
   import { loginWithGoogle, loginWithCode } from '../lib/api.js';
 
-  let { onLogin, exiting = false, notice = '' } = $props();
+  let { onLogin, exiting = false, notice = '', accessCodesEnabled = true } = $props();
 
   let error = $state('');
   let loading = $state(false);
@@ -165,13 +165,14 @@
         <p class="error">{error}</p>
       {/if}
 
-      <div class="divider">
-        <span class="divider-line"></span><span class="divider-text">OR</span><span class="divider-line"></span>
-      </div>
-
-      <button type="button" class="btn-code-toggle" onclick={() => { step = 'code'; error = ''; }}>
-        Enter access code
-      </button>
+      {#if accessCodesEnabled}
+        <div class="divider">
+          <span class="divider-line"></span><span class="divider-text">OR</span><span class="divider-line"></span>
+        </div>
+        <button type="button" class="btn-code-toggle" onclick={() => { step = 'code'; error = ''; }}>
+          Enter access code
+        </button>
+      {/if}
     </div>
 
   {:else if step === 'code'}

@@ -33,6 +33,7 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `RECONNECT_DELAY` | `5` | Seconds between reconnect attempts (pc-client). |
 | `CLIENT_DIST_PATH` | *(auto)* | Override path to the built Svelte frontend served by the Node.js server. |
 | `ALLOWED_ORIGINS` | *(unset)* | Comma-separated list of allowed CORS origins. **Required in production** — if unset, all origins are allowed (dev only). |
+| `ACCESS_CODES_ENABLED` | `true` | Set to `false` to disable access-code login entirely. Existing codes and the admin code-management UI remain fully functional — you can still create, edit, and delete codes while the feature is off. Users currently logged in via a code are kicked within 60 s. The login button disappears from the frontend and `POST /auth/code` returns `403`. |
 | `VPS_USER` | `root` | SSH username for manual deployments. |
 | `VPS_SSH_HOST` | — | SSH address of the VPS for manual deployments. |
 | `VPS_PATH` | `/root/flux2-9b-klein-remote` | Deployment path for manual deployments. |

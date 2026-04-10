@@ -253,6 +253,23 @@ export async function loginWithCode(code) {
   return data;
 }
 
+/**
+ * Fetch public feature flags from the server.
+ * Fails open — returns accessCodesEnabled: true on any network error so the
+ * UI degrades gracefully rather than permanently hiding the code-login button.
+ */
+export async function getConfig() {
+  try {
+    const res = await fetch('/config');
+    if (!res.ok) return { accessCodesEnabled: true };
+    const ct = res.headers.get('content-type') ?? '';
+    if (!ct.includes('application/json')) return { accessCodesEnabled: true };
+    return res.json();
+  } catch {
+    return { accessCodesEnabled: true };
+  }
+}
+
 // ── Admin user management ───────────────────────────────────────────────────
 
 export async function listUsers(token, status = null) {

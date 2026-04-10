@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { generateCode, listCodes, deleteCode, updateCode, listUsers, updateUserStatus, updateUserUses } from '../lib/api.js';
 
-  let { token, onClose } = $props();
+  let { token, onClose, accessCodesEnabled = true } = $props();
 
   // Decode own userId from JWT payload (no crypto — server validates signature on every request)
   const selfId = (() => {
@@ -361,6 +361,12 @@
     <div class="admin-body-wrap" class:scrolled-bottom={adminScrolledNearBottom}>
     <div class="admin-body" bind:this={adminBodyEl} onscroll={() => { const el = adminBodyEl; adminScrolledNearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 30; }}>
       {#if activeTab === 'codes'}
+      {#if !accessCodesEnabled}
+        <div class="codes-disabled-notice">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;margin-top:1px"><path d="M7 1.5L12.5 11H1.5L7 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M7 5.5v2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="7" cy="9.5" r="0.6" fill="currentColor"/></svg>
+          <span>Access codes are disabled via server configuration. Users cannot log in with codes until this is re-enabled.</span>
+        </div>
+      {/if}
       <!-- Generate section -->
       <div class="gen-section">
         <span class="section-label">GENERATE NEW CODE</span>
@@ -681,6 +687,22 @@
     color: #f3d5b2;
     font-family: 'DM Mono', monospace;
     font-size: 0.66rem;
+    letter-spacing: 0.05em;
+  }
+
+  .codes-disabled-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0 0 0.9rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid rgba(196, 153, 106, 0.28);
+    border-radius: 0.62rem;
+    background: rgba(196, 153, 106, 0.08);
+    color: #f3d5b2;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.66rem;
+    line-height: 1.55;
     letter-spacing: 0.05em;
   }
   .admin-body::-webkit-scrollbar { width: 4px; }

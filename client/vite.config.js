@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
       // In production (VPS), Caddy handles this routing instead.
       proxy: {
         '/auth': `http://localhost:${PORT}`,
+        '/config': `http://localhost:${PORT}`,
         '/tos': `http://localhost:${PORT}`,
         '/pc-pubkey': `http://localhost:${PORT}`,
         '/codes': `http://localhost:${PORT}`,

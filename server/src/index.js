@@ -82,6 +82,8 @@ const MAX_TOTAL_QUEUE_DEPTH = parseInt(process.env.MAX_TOTAL_QUEUE_DEPTH ?? '50'
 // 100 MB gives ample headroom while blocking obviously over-sized blobs.
 const MAX_PAYLOAD_B64 = 100 * 1024 * 1024;
 const MAX_RESULTS_PER_USER = parseInt(process.env.MAX_RESULTS_PER_USER ?? '500', 10);
+// When false, POST /auth/code returns 403 and the login button is hidden via /config.
+const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
 
 // ── Per-user submit rate limiter (persists across reconnects) ─────────────────
 const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -220,6 +222,7 @@ function getSessionInvalidReason(jwtPayload, rawToken) {
   if (!verified) return 'token_expired';
 
   if (jwtPayload.type === 'code_user') {
+    if (!ACCESS_CODES_ENABLED) return 'codes_disabled';
     const code = findInviteCodeById(jwtPayload.codeId);
     if (!code) return 'code_not_found';
     if (code.expires_at !== null && Date.now() > code.expires_at) return 'code_expired';
@@ -392,6 +395,9 @@ app.get('/pc-pubkey', requireActiveOrCode, (req, res) => {
 
 /** GET /health — simple liveness check */
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+/** GET /config — public feature flags consumed by the frontend */
+app.get('/config', (_req, res) => res.json({ accessCodesEnabled: ACCESS_CODES_ENABLED }));
 
 // ── Invite code management (admin only) ───────────────────────────────────────
 
@@ -734,6 +740,10 @@ app.delete('/results/:id', requireActive, (req, res) => {
 
 /** POST /auth/code — exchange a job_access code for a limited JWT */
 app.post('/auth/code', (req, res) => {
+  if (!ACCESS_CODES_ENABLED) {
+    return res.status(403).json({ error: 'Access codes are disabled' });
+  }
+
   const { code } = req.body ?? {};
   if (typeof code !== 'string' || !code.trim()) {
     return res.status(400).json({ error: 'code required' });
@@ -1175,6 +1185,11 @@ function handlePhoneSocket(ws, clientIp) {
 
     if (payload.type === 'code_user') {
       // Re-check DB state (mirrors requireActiveOrCode behaviour)
+      if (!ACCESS_CODES_ENABLED) {
+        sendJson(ws, { type: 'auth_failed', reason: 'codes_disabled' });
+        ws.close(4003, 'Access codes disabled');
+        return;
+      }
       const code = findInviteCodeById(payload.codeId);
       if (!code) {
         sendJson(ws, { type: 'auth_failed', reason: 'code_not_found' });

@@ -150,6 +150,9 @@ export function requireActiveOrCode(req, res, next) {
   }
   if (payload.type === 'code_user') {
     // Re-check the DB so revoked/expired/exhausted codes are rejected immediately.
+    if (process.env.ACCESS_CODES_ENABLED === 'false') {
+      return res.status(403).json({ error: 'Access codes are disabled' });
+    }
     const code = findInviteCodeById(payload.codeId);
     if (!code) return res.status(403).json({ error: 'Access code not found' });
     if (code.expires_at !== null && Date.now() > code.expires_at) {

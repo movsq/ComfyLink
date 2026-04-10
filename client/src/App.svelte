@@ -10,7 +10,7 @@
   import TermsModal from './components/TermsModal.svelte';
   import DataNoticeModal from './components/DataNoticeModal.svelte';
   import { createPhoneWS } from './lib/ws.js';
-  import { getVaultInfo, logoutToken } from './lib/api.js';
+  import { getVaultInfo, logoutToken, getConfig } from './lib/api.js';
   import { onDestroy } from 'svelte';
 
   function randomSeed() {
@@ -62,12 +62,21 @@
   // Transition animation state
   let loginExiting = $state(false);
 
+  // Feature flags from server config
+  // null = not yet fetched (hides code button until confirmed to avoid flash on disabled deployments)
+  let accessCodesEnabled = $state(null);
+
   // Seed + mode are owned here so they survive cycles
   let seed = $state(randomSeed());
   let seedMode = $state('randomize');
 
   // Derived
   let isGoogleUser = $derived(user?.type === 'google' || (user && !user.type));
+
+  // Fetch server feature flags once on mount
+  $effect(() => {
+    getConfig().then(cfg => { accessCodesEnabled = cfg.accessCodesEnabled; });
+  });
 
   // ── Cross-tab coordination ─────────────────────────────────────────────────
   // Lets sibling tabs know a job was submitted / completed so their queue UI
@@ -481,6 +490,7 @@
     if (reason === 'token_expired') return 'Session expired while idle.';
     if (reason === 'code_expired') return 'Access code expired.';
     if (reason === 'code_exhausted') return 'Access code has no remaining uses.';
+    if (reason === 'codes_disabled') return 'Access code login has been disabled. Please sign in with Google.';
     if (reason === 'no_uses_remaining') return 'No remaining uses on your account.';
     if (reason === 'account_suspended') return 'Account is no longer active.';
     if (reason === 'code_not_found') return 'Access code is no longer valid.';
@@ -544,7 +554,7 @@
   {/if}
 
   {#if view === 'login'}
-    <Login onLogin={handleLogin} exiting={loginExiting} notice={sessionNotice} />
+    <Login onLogin={handleLogin} exiting={loginExiting} notice={sessionNotice} {accessCodesEnabled} />
   {:else if view === 'submit'}
     <Submit
       {token} {ws}
@@ -594,7 +604,7 @@
   {/if}
 
   {#if showAdmin && user?.isAdmin}
-    <Admin {token} onClose={() => showAdmin = false} />
+    <Admin {token} onClose={() => showAdmin = false} {accessCodesEnabled} />
   {/if}
 
   {#if showVaultSetup && isGoogleUser}

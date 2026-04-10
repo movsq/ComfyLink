@@ -52,7 +52,7 @@
 
     # ── API routes → Node.js relay ─────────────────────────────────────────────
     @backend_routes {
-        path /auth* /tos* /pc-pubkey* /health* /codes* /vault* /results* /admin*
+        path /auth* /config* /tos* /pc-pubkey* /health* /codes* /vault* /results* /admin*
     }
     handle @backend_routes {
         reverse_proxy server:3000 {

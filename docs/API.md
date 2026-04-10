@@ -12,7 +12,8 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 |--------|------|------|-------------|
 | `POST` | `/auth/google` | — | Exchange Google ID token (+ optional invite code) for JWT |
 | `GET` | `/auth/me` | JWT | Return current user info |
-| `POST` | `/auth/code` | — | Exchange a `job_access` invite code for a limited JWT |
+| `POST` | `/auth/code` | — | Exchange a `job_access` invite code for a limited JWT. Returns `403` when `ACCESS_CODES_ENABLED=false`. |
+| `GET` | `/config` | — | Public feature flags consumed by the frontend: `{ accessCodesEnabled: bool }` |
 | `GET` | `/pc-pubkey` | active/code | Get the PC's cached public key for job encryption |
 | `GET` | `/health` | — | Liveness check |
 | `POST` | `/codes` | admin | Create an invite code |

@@ -15,6 +15,8 @@ Create, view, edit, and revoke invite codes.
 - Patch remaining uses or expiry on existing codes
 - Changes push immediately to connected admin and code-user sockets
 
+> **`ACCESS_CODES_ENABLED=false`** — When access-code login is disabled via the server environment variable, a warning banner appears at the top of this tab. Code generation and management remain fully functional so you can prepare codes in advance. Users currently logged in with a code are kicked within 60 seconds. The login button is hidden from the frontend and `POST /auth/code` returns `403`.
+
 ---
 
 ## USERS tab
