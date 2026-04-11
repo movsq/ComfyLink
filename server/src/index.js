@@ -9,6 +9,7 @@ import { randomBytes, createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
+import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
 import {
   initAuth,
   verifyGoogleToken,
@@ -52,6 +53,13 @@ import {
   pruneRevokedTokens,
   createJobAuditLog,
   pruneJobAuditLogsOlderThan,
+  findEmailUserByEmail,
+  findUserByEmail,
+  createEmailAuth,
+  findEmailAuthByUserId,
+  recordEmailLoginFailure,
+  getRecentEmailLoginFailureCount,
+  pruneEmailLoginFailures,
 } from './db.js';
 import {
   createJob,
@@ -84,6 +92,9 @@ const MAX_PAYLOAD_B64 = 100 * 1024 * 1024;
 const MAX_RESULTS_PER_USER = parseInt(process.env.MAX_RESULTS_PER_USER ?? '500', 10);
 // When false, POST /auth/code returns 403 and the login button is hidden via /config.
 const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
+// When true (default), ALL new registrations require a valid registration invite code.
+// Set to false only for trusted-network open-registration deployments.
+const INVITE_REQUIRED = process.env.INVITE_REQUIRED === 'true';
 
 // ── Per-user submit rate limiter (persists across reconnects) ─────────────────
 const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -230,6 +241,7 @@ function getSessionInvalidReason(jwtPayload, rawToken) {
     return null;
   }
 
+  // Google users and email users share the same DB status path
   const user = getUserById(jwtPayload.userId);
   if (!user || user.status !== 'active') return 'account_suspended';
   return null;
@@ -264,9 +276,12 @@ app.use(express.json({ limit: '20mb' }));
 // (Google's Sign-In widget can fire multiple XHRs on retry/page-reload) but still
 // blocks automated stuffing. Auth routes are SKIPPED in apiLimiter to avoid
 // double-counting the same request against two buckets.
-const authLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
-const apiLimiter  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/auth/'), message: { error: 'Too many requests — try again later' } });
+const authLimiter      = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+const emailAuthLimiter = rateLimit({ windowMs: 60_000, max: 10,  standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests — try again later' } });
+const apiLimiter       = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/auth/'), message: { error: 'Too many requests — try again later' } });
 app.use('/auth/', authLimiter);
+app.use('/auth/register', emailAuthLimiter);
+app.use('/auth/login/email', emailAuthLimiter);
 app.use(apiLimiter);
 
 /** POST /auth/google — exchange a Google ID token (+ optional invite code) for a JWT */
@@ -299,11 +314,12 @@ app.post('/auth/google', async (req, res) => {
       googleSub: existing.google_sub,
       status: existing.status,
       isAdmin: !!existing.is_admin,
+      type: 'google',
     });
     return res.json({
       token,
       tosAccepted: existing.tos_version === TOS_VERSION,
-      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null, tosAccepted: existing.tos_version === TOS_VERSION },
+      user: { name: existing.name, email: existing.email, status: existing.status, isAdmin: !!existing.is_admin, usesRemaining: existing.uses_remaining ?? null, tosAccepted: existing.tos_version === TOS_VERSION, type: 'google' },
     });
   }
 
@@ -312,6 +328,10 @@ app.post('/auth/google', async (req, res) => {
     const code = validateInviteCode(inviteCode, 'registration');
     if (!code) {
       return res.status(400).json({ error: 'Invalid or expired invite code' });
+    }
+    // Block if an email-auth account already exists with this Google email
+    if (findEmailUserByEmail(googleUser.email?.toLowerCase())) {
+      return res.status(409).json({ error: 'An account with this email already exists. Try signing in with email and password.' });
     }
     const codeResult = atomicDecrementCodeUses(code.id);
     if (codeResult.changes === 0) {
@@ -331,22 +351,34 @@ app.post('/auth/google', async (req, res) => {
       googleSub: user.google_sub,
       status: user.status,
       isAdmin: !!user.is_admin,
+      type: 'google',
     });
     return res.json({
       token,
       tosAccepted: false,
-      user: { name: user.name, email: user.email, status: user.status, isAdmin: !!user.is_admin, usesRemaining: user.uses_remaining ?? null, tosAccepted: false },
+      user: { name: user.name, email: user.email, status: user.status, isAdmin: !!user.is_admin, usesRemaining: user.uses_remaining ?? null, tosAccepted: false, type: 'google' },
     });
   }
 
-  // ── New user without invite code → pending ────────────────────────────────
+  // ── New user without invite code ────────────────────────────────────────────
+  if (INVITE_REQUIRED) {
+    // Invite is mandatory — do NOT create a DB record; tell the client to prompt for a code.
+    return res.status(200).json({ status: 'invite_required' });
+  }
+  // Block if an email-auth account already exists with this Google email
+  if (findEmailUserByEmail(googleUser.email?.toLowerCase())) {
+    return res.status(409).json({ error: 'An account with this email already exists. Try signing in with email and password.' });
+  }
+  // Invite not required — create a pending account awaiting admin approval.
   createUser({
     googleSub: googleUser.sub,
     email: googleUser.email,
     name: googleUser.name,
     picture: googleUser.picture,
     status: 'pending',
-  });  notifyAdmins('users_changed');  return res.status(200).json({ status: 'pending_approval', isNew: true });
+  });
+  notifyAdmins('users_changed');
+  return res.status(200).json({ status: 'pending_approval', isNew: true });
 });
 
 /** GET /auth/me — return current user info from DB */
@@ -397,7 +429,7 @@ app.get('/pc-pubkey', requireActiveOrCode, (req, res) => {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 /** GET /config — public feature flags consumed by the frontend */
-app.get('/config', (_req, res) => res.json({ accessCodesEnabled: ACCESS_CODES_ENABLED }));
+app.get('/config', (_req, res) => res.json({ accessCodesEnabled: ACCESS_CODES_ENABLED, inviteRequired: INVITE_REQUIRED }));
 
 // ── Invite code management (admin only) ───────────────────────────────────────
 
@@ -780,6 +812,185 @@ app.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Email auth ────────────────────────────────────────────────────────────────
+
+// Allowed symbols in passwords (the set that common services accept).
+const PASSWORD_SYMBOL_RE = /[!@#$%^&*()_+\-=[\]{}|;':",.<>?/\\`~]/;
+const PASSWORD_LETTER_RE = /[a-zA-Z]/;
+const PASSWORD_NUMBER_RE = /[0-9]/;
+
+/**
+ * Validate password against the site's policy.
+ * Requirements:
+ *   - Minimum 8 characters
+ *   - At least 2 of: letters, numbers, symbols (from the allowed set)
+ * Returns null if valid; an error string if invalid.
+ */
+function validatePassword(pw) {
+  if (typeof pw !== 'string' || pw.length < 8) {
+    return 'Password must be at least 8 characters';
+  }
+  const hasLetters = PASSWORD_LETTER_RE.test(pw);
+  const hasNumbers = PASSWORD_NUMBER_RE.test(pw);
+  const hasSymbols = PASSWORD_SYMBOL_RE.test(pw);
+  const classCount = (hasLetters ? 1 : 0) + (hasNumbers ? 1 : 0) + (hasSymbols ? 1 : 0);
+  if (classCount < 2) {
+    return 'Password must contain at least two of: letters, numbers, symbols';
+  }
+  return null;
+}
+
+/** Simple RFC 5322-compatible email format check */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+
+/** POST /auth/register — create a new account with email+password */
+app.post('/auth/register', async (req, res) => {
+  const { email, password, inviteCode, acceptedData, acceptedTos } = req.body ?? {};
+
+  // ── Input validation ──────────────────────────────────────────────────────
+  if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
+    return res.status(400).json({ error: 'Valid email address required' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const pwError = validatePassword(password);
+  if (pwError) return res.status(400).json({ error: pwError });
+
+  if (acceptedData !== true) {
+    return res.status(400).json({ error: 'You must accept the data usage notice' });
+  }
+  if (acceptedTos !== true) {
+    return res.status(400).json({ error: 'You must accept the Terms of Service' });
+  }
+
+  // ── Invite code check ─────────────────────────────────────────────────────
+  let codeRow = null;
+  if (INVITE_REQUIRED) {
+    if (!inviteCode || typeof inviteCode !== 'string' || !inviteCode.trim()) {
+      return res.status(400).json({ error: 'invite_code_required' });
+    }
+    codeRow = validateInviteCode(inviteCode.trim().toUpperCase(), 'registration');
+    if (!codeRow) {
+      return res.status(400).json({ error: 'Invalid or expired invite code' });
+    }
+  } else if (inviteCode && typeof inviteCode === 'string' && inviteCode.trim()) {
+    // Invite not required, but one was provided — validate + consume it anyway
+    codeRow = validateInviteCode(inviteCode.trim().toUpperCase(), 'registration');
+    if (!codeRow) {
+      return res.status(400).json({ error: 'Invalid or expired invite code' });
+    }
+  }
+
+  // ── Duplicate email check ─────────────────────────────────────────────────
+  const existingAny = findUserByEmail(normalizedEmail);
+  if (existingAny) {
+    // Surface the same generic message regardless of which auth method was used
+    // to avoid leaking whether a Google account exists with this email.
+    return res.status(409).json({ error: 'An account with this email already exists. Try signing in with Google.' });
+  }
+
+  // ── Consume invite code ───────────────────────────────────────────────────
+  if (codeRow) {
+    const decrementResult = atomicDecrementCodeUses(codeRow.id);
+    if (decrementResult.changes === 0) {
+      return res.status(400).json({ error: 'Invalid or expired invite code' });
+    }
+  }
+
+  // ── Create user + hash password ───────────────────────────────────────────
+  const status = codeRow ? 'active' : 'pending';
+
+  let passwordHash;
+  try {
+    passwordHash = await argon2Hash(password, { algorithm: 2 /* argon2id */, memoryCost: 65536, timeCost: 3, parallelism: 1 });
+  } catch (err) {
+    console.error('[auth/register] argon2 hash failed:', err);
+    return res.status(500).json({ error: 'Registration failed — please try again' });
+  }
+
+  const newUser = createUser({ googleSub: null, email: normalizedEmail, name: '', picture: '', status, isAdmin: false });
+  createEmailAuth(newUser.id, passwordHash);
+
+  notifyAdmins('users_changed');
+  if (codeRow) notifyAdmins('codes_changed');
+
+  if (status === 'pending') {
+    return res.status(200).json({ status: 'pending_approval' });
+  }
+
+  const token = signJwt({ userId: newUser.id, status: newUser.status, isAdmin: false, type: 'email' });
+  return res.json({
+    token,
+    tosAccepted: false,
+    user: { name: '', email: normalizedEmail, status: newUser.status, isAdmin: false, usesRemaining: newUser.uses_remaining ?? null, tosAccepted: false, type: 'email' },
+  });
+});
+
+/** POST /auth/login/email — authenticate with email+password */
+app.post('/auth/login/email', async (req, res) => {
+  const { email, password } = req.body ?? {};
+
+  if (typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'email required' });
+  }
+  if (typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: 'password required' });
+  }
+
+  const ip = req.ip ?? 'unknown';
+  const EMAIL_LOGIN_WINDOW_MS = 15 * 60_000;
+  const EMAIL_LOGIN_MAX_FAILURES = 15;
+
+  // Per-IP brute-force check
+  if (getRecentEmailLoginFailureCount(ip, EMAIL_LOGIN_WINDOW_MS) >= EMAIL_LOGIN_MAX_FAILURES) {
+    return res.status(429).json({ error: 'Too many failed attempts — try again in 15 minutes' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Look up email-auth user only (not Google-only accounts) to avoid leaking account existence
+  const user = findEmailUserByEmail(normalizedEmail);
+  if (!user) {
+    recordEmailLoginFailure(ip);
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+
+  const emailAuth = findEmailAuthByUserId(user.id);
+  if (!emailAuth) {
+    // Google-only account — respond the same as "not found" to avoid leaking info
+    recordEmailLoginFailure(ip);
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+
+  let passwordOk = false;
+  try {
+    passwordOk = await argon2Verify(emailAuth.password_hash, password);
+  } catch (err) {
+    console.error('[auth/login/email] argon2 verify failed:', err);
+    return res.status(500).json({ error: 'Login failed — please try again' });
+  }
+
+  if (!passwordOk) {
+    recordEmailLoginFailure(ip);
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+
+  // Credentials valid — check account status
+  if (user.status === 'suspended') {
+    return res.status(403).json({ error: 'suspended' });
+  }
+  if (user.status === 'pending') {
+    return res.status(200).json({ status: 'pending_approval' });
+  }
+
+  const token = signJwt({ userId: user.id, status: user.status, isAdmin: !!user.is_admin, type: 'email' });
+  return res.json({
+    token,
+    tosAccepted: user.tos_version === TOS_VERSION,
+    user: { name: user.name, email: user.email, status: user.status, isAdmin: !!user.is_admin, usesRemaining: user.uses_remaining ?? null, tosAccepted: user.tos_version === TOS_VERSION, type: 'email' },
+  });
+});
+
 // ── Admin user management ─────────────────────────────────────────────────────
 
 /** GET /admin/users — list users, optionally filter by status */
@@ -900,6 +1111,9 @@ setInterval(() => {
 
 // Prune code_auth_failures older than 5 minutes every 5 minutes
 setInterval(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
+
+// Prune email_login_failures older than 15 minutes every 5 minutes
+setInterval(() => pruneEmailLoginFailures(15 * 60_000), 5 * 60_000);
 
 // Prune expired pending thumbnails every 5 minutes
 setInterval(() => {

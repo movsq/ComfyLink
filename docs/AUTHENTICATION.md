@@ -2,19 +2,56 @@
 
 [← Back to README](../README.md)
 
-Users authenticate with **Google OAuth** (ID token flow — no server-side redirect needed).
+Users can authenticate in three ways:
+
+- **Google OAuth** — ID token flow; no server-side redirect needed
+- **Email + password** — register with an email address and a password (argon2id-hashed server-side)
+- **Access code** — guest mode using a `job_access` invite code; no persistent account
 
 ---
 
 ## Account lifecycle
 
+Google and email/password users share the same account states:
+
 | State | Meaning |
 |-------|---------|
-| `pending` | Signed in with Google but not yet approved — cannot submit jobs |
+| `pending` | Account created but not yet approved — cannot submit jobs |
 | `active` | Approved; full access to job submission and vault |
 | `suspended` | Access revoked by an admin |
 
 New accounts start as `pending` **unless** the user supplies a `registration` invite code at sign-in, which immediately sets them to `active`.
+
+---
+
+## Email + password authentication
+
+### Registration (`POST /auth/register`)
+
+- Requires `email` and `password` in the request body.
+- Password must be at least 12 characters.
+- The password is hashed with **argon2id** (memory: 65 536 KiB, iterations: 3, parallelism: 4) before storage. The plaintext password is never stored or logged.
+- If `INVITE_REQUIRED=true`, a valid `registrationCode` must also be provided — otherwise the request is rejected with `403`.
+- On success, returns a JWT with `type: "email"` and the new user object.
+
+### Login (`POST /auth/login/email`)
+
+- Requires `email` and `password`.
+- Brute-force protection: up to **15 failed attempts per IP** within any 15-minute window; thereafter returns `429` until the window clears.
+- Invalid credentials always return `401 invalid_credentials` regardless of whether the email exists, to prevent account enumeration.
+- Google-only accounts (no password set) return the same `401` response.
+
+### Password policy
+
+| Requirement | Value |
+|-------------|-------|
+| Minimum length | 12 characters |
+| Maximum length | 1 000 characters (enforced server-side) |
+| Complexity | None enforced — length is the primary security factor |
+
+### Rate limiting
+
+Both `/auth/register` and `/auth/login/email` share a **10 requests per 15-minute window** per IP rate limiter (in addition to the per-endpoint brute-force counters above).
 
 ---
 
@@ -69,7 +106,7 @@ The code's validity (expiry, remaining uses) is re-checked on every WebSocket au
 
 All users are subject to the Terms of Service regardless of how they authenticate.
 
-**Google-authenticated users** must explicitly accept via the ToS modal — presented on first login and re-shown if the user attempts to generate without having accepted. Acceptance is recorded server-side (`tos_accepted_at` timestamp in the `users` table).
+**Google-authenticated and email/password users** must explicitly accept via the ToS modal — presented on first login and re-shown if the user attempts to generate without having accepted. Acceptance is recorded server-side (`tos_accepted_at` timestamp in the `users` table).
 
 **Access code users** are bound by the same terms upon first use of the Service. The ToS (Section 5) expressly identifies invite-code access as a covered access method; admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
 

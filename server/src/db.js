@@ -171,6 +171,94 @@ if (db.pragma('user_version', { simple: true }) < 7) {
   db.pragma('user_version = 7');
 }
 
+if (db.pragma('user_version', { simple: true }) < 8) {
+  // v8: Add email+password authentication support.
+  // - users.google_sub becomes nullable (email-registered users have no Google sub)
+  // - New email_auth table stores argon2id password hashes
+  // - New email_login_failures table for per-IP brute-force protection
+  // DROP TABLE IF EXISTS guard makes this safe to retry after a mid-migration crash.
+  db.exec(`
+    DROP TABLE IF EXISTS users_v8;
+    CREATE TABLE users_v8 (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_sub      TEXT    UNIQUE,
+      email           TEXT    NOT NULL,
+      name            TEXT    NOT NULL DEFAULT '',
+      picture         TEXT    NOT NULL DEFAULT '',
+      status          TEXT    NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending', 'active', 'suspended')),
+      is_admin        INTEGER NOT NULL DEFAULT 0
+                              CHECK (is_admin IN (0, 1)),
+      uses_remaining  INTEGER DEFAULT 0,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      tos_accepted_at INTEGER DEFAULT NULL,
+      tos_version     INTEGER DEFAULT NULL
+    );
+    INSERT INTO users_v8
+      SELECT id, google_sub, email, name, picture, status, is_admin,
+             uses_remaining, created_at, updated_at, tos_accepted_at, tos_version
+      FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_v8 RENAME TO users;
+
+    CREATE TABLE IF NOT EXISTS email_auth (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id             INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      password_hash       TEXT    NOT NULL,
+      email_verified      INTEGER NOT NULL DEFAULT 0,
+      verification_token  TEXT    DEFAULT NULL,
+      token_expires_at    INTEGER DEFAULT NULL,
+      created_at          INTEGER NOT NULL,
+      updated_at          INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS email_login_failures (
+      ip_address   TEXT    NOT NULL,
+      attempted_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_login_failures_ip_at
+      ON email_login_failures(ip_address, attempted_at);
+  `);
+  // Partial unique index: only one email-auth account per email address
+  // (Google users with the same email are separate and allowed to co-exist)
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX idx_users_email_unique_email_auth
+        ON users(email) WHERE google_sub IS NULL
+    `);
+  } catch { /* already exists on fresh DB */ }
+  db.pragma('user_version = 8');
+}
+
+if (db.pragma('user_version', { simple: true }) < 9) {
+  // v9: Expand job_audit_log user_type to include 'email'.
+  // SQLite cannot ALTER a CHECK constraint, so we recreate the table.
+  // DROP TABLE IF EXISTS guard makes this safe to retry after a mid-migration crash.
+  db.exec(`
+    DROP TABLE IF EXISTS job_audit_log_v9;
+    CREATE TABLE job_audit_log_v9 (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id      TEXT    NOT NULL,
+      user_type   TEXT    NOT NULL,
+      user_id     INTEGER,
+      google_sub  TEXT,
+      email       TEXT,
+      code_id     INTEGER,
+      ip_address  TEXT    NOT NULL,
+      created_at  INTEGER NOT NULL
+    );
+    INSERT INTO job_audit_log_v9
+      SELECT id, job_id, user_type, user_id, google_sub, email, code_id, ip_address, created_at
+      FROM job_audit_log;
+    DROP TABLE job_audit_log;
+    ALTER TABLE job_audit_log_v9 RENAME TO job_audit_log;
+    CREATE INDEX IF NOT EXISTS idx_job_audit_log_created_at
+      ON job_audit_log(created_at);
+  `);
+  db.pragma('user_version = 9');
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -203,6 +291,7 @@ const stmtAtomicDecrementUserUses = db.prepare(
 );
 
 const stmtFindByEmail = db.prepare('SELECT * FROM users WHERE email = ?');
+const stmtFindByEmailNoGoogleSub = db.prepare('SELECT * FROM users WHERE email = ? AND google_sub IS NULL');
 
 const stmtUpdateTosAccepted = db.prepare(
   'UPDATE users SET tos_accepted_at = @tos_accepted_at, tos_version = @tos_version, updated_at = @updated_at WHERE id = @id',
@@ -336,6 +425,26 @@ const stmtPruneOldAuthFailures = db.prepare(
   'DELETE FROM code_auth_failures WHERE attempted_at < ?',
 );
 
+// Email auth (password-based login)
+const stmtCreateEmailAuth = db.prepare(`
+  INSERT INTO email_auth (user_id, password_hash, email_verified, created_at, updated_at)
+  VALUES (@user_id, @password_hash, @email_verified, @created_at, @updated_at)
+`);
+const stmtFindEmailAuthByUserId = db.prepare(
+  'SELECT * FROM email_auth WHERE user_id = ?',
+);
+
+// Email login brute-force tracking (per-IP)
+const stmtInsertEmailLoginFailure = db.prepare(
+  'INSERT INTO email_login_failures (ip_address, attempted_at) VALUES (?, ?)',
+);
+const stmtCountRecentEmailLoginFailures = db.prepare(
+  'SELECT COUNT(*) AS cnt FROM email_login_failures WHERE ip_address = ? AND attempted_at >= ?',
+);
+const stmtPruneOldEmailLoginFailures = db.prepare(
+  'DELETE FROM email_login_failures WHERE attempted_at < ?',
+);
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function findUserByGoogleSub(googleSub) {
@@ -344,6 +453,15 @@ export function findUserByGoogleSub(googleSub) {
 
 export function findUserByEmail(email) {
   return stmtFindByEmail.get(email) ?? null;
+}
+
+/**
+ * Find a user by email who registered via email/password (not Google).
+ * Used during email login to avoid leaking whether a Google account exists
+ * with that email.
+ */
+export function findEmailUserByEmail(email) {
+  return stmtFindByEmailNoGoogleSub.get(email) ?? null;
 }
 
 export function getUserById(id) {
@@ -595,6 +713,41 @@ export function createJobAuditLog({ jobId, userType, userId = null, googleSub = 
  */
 export function pruneJobAuditLogsOlderThan(maxAgeMs) {
   return stmtPruneJobAuditLogs.run(Date.now() - maxAgeMs);
+}
+
+// Email auth
+
+/**
+ * Create an email_auth row for a user. Sets email_verified=1 (mocked — real
+ * verification flow infrastructure is present but sending is not yet implemented).
+ */
+export function createEmailAuth(userId, passwordHash) {
+  const now = Date.now();
+  return stmtCreateEmailAuth.run({
+    user_id: userId,
+    password_hash: passwordHash,
+    email_verified: 1,
+    created_at: now,
+    updated_at: now,
+  });
+}
+
+export function findEmailAuthByUserId(userId) {
+  return stmtFindEmailAuthByUserId.get(userId) ?? null;
+}
+
+// Email login brute-force tracking
+
+export function recordEmailLoginFailure(ip) {
+  return stmtInsertEmailLoginFailure.run(ip, Date.now());
+}
+
+export function getRecentEmailLoginFailureCount(ip, windowMs) {
+  return stmtCountRecentEmailLoginFailures.get(ip, Date.now() - windowMs)?.cnt ?? 0;
+}
+
+export function pruneEmailLoginFailures(maxAgeMs) {
+  return stmtPruneOldEmailLoginFailures.run(Date.now() - maxAgeMs);
 }
 
 export default db;

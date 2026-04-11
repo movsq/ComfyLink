@@ -16,6 +16,7 @@ services:
       - MAX_RESULTS_PER_USER=${MAX_RESULTS_PER_USER:-500}
       - MAX_TOTAL_QUEUE_DEPTH=${MAX_TOTAL_QUEUE_DEPTH:-50}
       - ACCESS_CODES_ENABLED=${ACCESS_CODES_ENABLED:-true}
+      - INVITE_REQUIRED=${INVITE_REQUIRED:-false}
     volumes:
       - server_data:/app/data
 

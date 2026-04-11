@@ -1,7 +1,8 @@
 <script>
   import { loginWithGoogle, loginWithCode } from '../lib/api.js';
+  import EmailAuthModal from './EmailAuthModal.svelte';
 
-  let { onLogin, exiting = false, notice = '', accessCodesEnabled = true } = $props();
+  let { onLogin, exiting = false, notice = '', accessCodesEnabled = true, inviteRequired = true } = $props();
 
   let error = $state('');
   let loading = $state(false);
@@ -11,6 +12,11 @@
   let googleIdToken = $state(null);
   let accessCode = $state('');
   let noticeDismissed = $state(false);
+  let showEmailModal = $state(false);
+  let showGoogleInvitePopup = $state(false);
+  let googleInviteCode = $state('');
+  let googleInviteLoading = $state(false);
+  let googleInviteError = $state('');
 
   // Reset dismiss flag whenever a new notice arrives
   $effect(() => { if (notice) noticeDismissed = false; });
@@ -70,6 +76,12 @@
     try {
       const data = await loginWithGoogle(idToken);
 
+      if (data.status === 'invite_required') {
+        showGoogleInvitePopup = true;
+        loading = false;
+        return;
+      }
+
       if (data.status === 'pending_approval') {
         step = data.isNew === false ? 'pending' : 'invite';
         loading = false;
@@ -113,6 +125,29 @@
 
   function handleRegisterWithoutCode() {
     step = 'pending';
+  }
+
+  async function handleGoogleInviteSubmit(e) {
+    e.preventDefault();
+    if (!googleInviteCode.trim() || !googleIdToken) return;
+    googleInviteError = '';
+    googleInviteLoading = true;
+    try {
+      const data = await loginWithGoogle(googleIdToken, googleInviteCode.trim());
+      if (data.token) {
+        showGoogleInvitePopup = false;
+        onLogin(data.token, data.user);
+        return;
+      }
+      if (data.status === 'pending_approval') {
+        showGoogleInvitePopup = false;
+        step = 'pending';
+      }
+    } catch (err) {
+      googleInviteError = err.message;
+    } finally {
+      googleInviteLoading = false;
+    }
   }
 
   async function handleAccessCode(e) {
@@ -173,6 +208,13 @@
           Enter access code
         </button>
       {/if}
+
+      <div class="divider">
+        <span class="divider-line"></span><span class="divider-text">OR</span><span class="divider-line"></span>
+      </div>
+      <button type="button" class="btn-code-toggle" onclick={() => { showEmailModal = true; }}>
+        Login with e-mail
+      </button>
     </div>
 
   {:else if step === 'code'}
@@ -208,7 +250,7 @@
       {/if}
 
       <button type="button" class="btn-code-toggle" onclick={() => { step = 'google'; error = ''; accessCode = ''; }}>
-        Sign in with Google instead
+        Use a different login method
       </button>
     </form>
 
@@ -285,6 +327,43 @@
     </div>
   {/if}
 </div>
+
+{#if showGoogleInvitePopup}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+  <div class="google-invite-backdrop" role="dialog" aria-modal="true" tabindex="-1"
+    onclick={(e) => { if (e.target === e.currentTarget) { showGoogleInvitePopup = false; googleInviteCode = ''; googleInviteError = ''; } }}>
+    <form class="google-invite-card" onsubmit={handleGoogleInviteSubmit} novalidate>
+      <p class="google-invite-heading">INVITE REQUIRED</p>
+      <p class="google-invite-body">Your Google account isn't registered yet. Enter an invite code to complete registration.</p>
+      <input
+        type="text"
+        placeholder="KLEIN-XXXX-XXXX"
+        autocomplete="off"
+        spellcheck="false"
+        bind:value={googleInviteCode}
+        disabled={googleInviteLoading}
+        class="code-input"
+      />
+      {#if googleInviteError}
+        <p class="error">{googleInviteError}</p>
+      {/if}
+      <button type="submit" disabled={googleInviteLoading || !googleInviteCode.trim()}>
+        {googleInviteLoading ? 'VERIFYING…' : 'ACTIVATE'}
+      </button>
+      <button type="button" class="btn-secondary" onclick={() => { showGoogleInvitePopup = false; googleInviteCode = ''; googleInviteError = ''; }}>
+        CANCEL
+      </button>
+    </form>
+  </div>
+{/if}
+
+{#if showEmailModal}
+  <EmailAuthModal
+    onLogin={(token, user) => { showEmailModal = false; onLogin(token, user); }}
+    onClose={() => { showEmailModal = false; }}
+    inviteRequired={inviteRequired}
+  />
+{/if}
 
 <style>
   .login-bg {
@@ -645,5 +724,54 @@
 
   @media (hover: none) and (pointer: coarse) {
     .code-input { font-size: 16px !important; }
+  }
+
+  .google-invite-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    animation: fade-in-overlay 0.2s ease both;
+  }
+  @keyframes fade-in-overlay { from { opacity: 0; } to { opacity: 1; } }
+
+  .google-invite-card {
+    width: 100%;
+    max-width: 300px;
+    background: rgba(14, 14, 18, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1.25rem;
+    padding: 1.5rem 1.5rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    animation: panel-in-overlay 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes panel-in-overlay {
+    from { transform: scale(0.95) translateY(-8px); opacity: 0; }
+    to   { transform: scale(1)    translateY(0);    opacity: 1; }
+  }
+
+  .google-invite-heading {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    color: #527490;
+    margin: 0;
+    text-align: center;
+  }
+
+  .google-invite-body {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: #8b96a6;
+    margin: 0;
+    line-height: 1.55;
+    text-align: center;
   }
 </style>

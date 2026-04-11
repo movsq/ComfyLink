@@ -36,7 +36,7 @@ The pc-client additionally deletes each prompt from ComfyUI's in-memory history 
 
 ### 4. Plaintext metadata
 
-The relay server does store some plaintext metadata per user account: email address (Google-authenticated users only), `tos_accepted_at` timestamp, quota counters, and job submission timestamps. This is real personal data subject to GDPR access and erasure requests. Ensure your admin tooling can export and wipe a user record cleanly.
+The relay server does store some plaintext metadata per user account: email address (Google-authenticated and email/password users), `tos_accepted_at` timestamp, quota counters, and job submission timestamps. This is real personal data subject to GDPR access and erasure requests. Ensure your admin tooling can export and wipe a user record cleanly.
 
 Prompt content, image data, and vault blobs are never stored in plaintext.
 

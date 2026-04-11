@@ -255,19 +255,68 @@ export async function loginWithCode(code) {
 
 /**
  * Fetch public feature flags from the server.
- * Fails open — returns accessCodesEnabled: true on any network error so the
- * UI degrades gracefully rather than permanently hiding the code-login button.
+ * Fails open — returns safe defaults on any network error so the
+ * UI degrades gracefully.
  */
 export async function getConfig() {
   try {
     const res = await fetch('/config');
-    if (!res.ok) return { accessCodesEnabled: true };
+    if (!res.ok) return { accessCodesEnabled: true, inviteRequired: true };
     const ct = res.headers.get('content-type') ?? '';
-    if (!ct.includes('application/json')) return { accessCodesEnabled: true };
+    if (!ct.includes('application/json')) return { accessCodesEnabled: true, inviteRequired: true };
     return res.json();
   } catch {
-    return { accessCodesEnabled: true };
+    return { accessCodesEnabled: true, inviteRequired: true };
   }
+}
+
+// ── Email auth ─────────────────────────────────────────────────
+
+/**
+ * Register a new account with email+password.
+ * Returns { token, user } on success, or { status: 'pending_approval' } if no code.
+ * Throws on error.
+ */
+export async function registerEmail({ email, password, inviteCode = null, acceptedData = true, acceptedTos = true } = {}) {
+  const body = { email, password, acceptedData, acceptedTos };
+  if (inviteCode) body.inviteCode = inviteCode;
+
+  const res = await fetch('/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.status === 429) throw new Error('Too many attempts — please wait a moment and try again');
+  if (res.status === 409) throw new Error('An account with this email already exists');
+  if (res.status === 400) throw new Error(data.error || 'Registration failed');
+  if (!res.ok) throw new Error(data.error || `Registration failed (${res.status})`);
+
+  return data;
+}
+
+/**
+ * Log in with email+password.
+ * Returns { token, user } on success.
+ * Throws on error.
+ */
+export async function loginEmail({ email, password } = {}) {
+  const res = await fetch('/auth/login/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.status === 429) throw new Error('Too many failed attempts — please wait 15 minutes and try again');
+  if (res.status === 401) throw new Error('Incorrect email or password');
+  if (res.status === 403) throw new Error(data.error === 'suspended' ? 'Your account has been suspended' : 'Forbidden');
+  if (!res.ok) throw new Error(data.error || `Login failed (${res.status})`);
+
+  return data;
 }
 
 // ── Admin user management ───────────────────────────────────────────────────

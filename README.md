@@ -49,8 +49,9 @@ Your PC runs ComfyUI and a lightweight Python bridge. It connects *outbound* to 
 
 - **End-to-end encryption** — every job (prompt, reference images, result) is encrypted on-device with ECDH-AES-GCM; the relay sees only opaque blobs
 - **Encrypted vault** — generated images are stored as encrypted blobs; the decryption key is held by you and wrapped with your biometric/passkey or password; the server has no access to your content
-- **Two distinct access paths:**
+- **Three distinct access paths:**
   - **Google account** — full account with quota tracking, vault, gallery, and ToS acceptance flow; suited for trusted users who will use the tool regularly
+  - **E-mail / password** — full account (same features as Google); argon2id hashing; requires invite code by default (`INVITE_REQUIRED=true`); ToS and data-notice acceptance enforced at registration
   - **Access code** — no account, no sign-up, no Google required; paste a code and generate; suited for sharing with less technical friends or one-off access
 - **Per-user quotas** — admin-configurable job limits per account
 - **Admin panel** — manage users, issue and revoke access codes, adjust quotas

@@ -88,7 +88,9 @@ cd client && npm install && npm run dev
 cd pc-client && python main.py
 ```
 
-Open the URL Vite prints (e.g. `http://localhost:5173`) and sign in with Google.
+Open the URL Vite prints (e.g. `http://localhost:5173`) and sign in with Google or use the **"Login with e-mail"** button to register with an e-mail address and password.
+
+> **Invite codes required by default.** `INVITE_REQUIRED=true` is the default — a `KLEIN-XXXX-XXXX` invite code is needed to register (Google & e-mail). Set `INVITE_REQUIRED=false` in `.env` to allow open registration.
 
 > **No GPU?** Use `comfyui_mock.py` — swap the import in `main.py` to get a tinted placeholder image instead.
 >

@@ -1,10 +1,10 @@
 <script>
-  let { onClose } = $props();
+  let { onClose, onAccepted = null } = $props();
   let lang = $state('cz');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}>
   <div class="panel">
     <div class="handle"></div>
 
@@ -123,9 +123,15 @@
     </div>
 
     <div class="actions">
-      <button class="btn-primary" onclick={onClose}>
-        {lang === 'en' ? 'CLOSE' : 'ZAVŘÍT'}
-      </button>
+      {#if onAccepted}
+        <button class="btn-primary" onclick={onAccepted}>
+          {lang === 'en' ? 'I AGREE' : 'SOUHLASÍM'}
+        </button>
+      {:else}
+        <button class="btn-primary" onclick={onClose}>
+          {lang === 'en' ? 'CLOSE' : 'ZAVŘÍT'}
+        </button>
+      {/if}
     </div>
   </div>
 </div>

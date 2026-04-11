@@ -65,17 +65,19 @@
   // Feature flags from server config
   // null = not yet fetched (hides code button until confirmed to avoid flash on disabled deployments)
   let accessCodesEnabled = $state(null);
+  let inviteRequired = $state(null); // null = loading
 
   // Seed + mode are owned here so they survive cycles
   let seed = $state(randomSeed());
   let seedMode = $state('randomize');
 
   // Derived
-  let isGoogleUser = $derived(user?.type === 'google' || (user && !user.type));
+  // isGoogleUser: true for account-based users (Google or email/password) — they have a DB identity, vault access, and server-side ToS
+  let isGoogleUser = $derived(user?.type === 'google' || user?.type === 'email');
 
   // Fetch server feature flags once on mount
   $effect(() => {
-    getConfig().then(cfg => { accessCodesEnabled = cfg.accessCodesEnabled; });
+    getConfig().then(cfg => { accessCodesEnabled = cfg.accessCodesEnabled; inviteRequired = cfg.inviteRequired ?? true; });
   });
 
   // ── Cross-tab coordination ─────────────────────────────────────────────────
@@ -554,7 +556,7 @@
   {/if}
 
   {#if view === 'login'}
-    <Login onLogin={handleLogin} exiting={loginExiting} notice={sessionNotice} {accessCodesEnabled} />
+    <Login onLogin={handleLogin} exiting={loginExiting} notice={sessionNotice} {accessCodesEnabled} inviteRequired={inviteRequired ?? true} />
   {:else if view === 'submit'}
     <Submit
       {token} {ws}
@@ -652,7 +654,7 @@
   {#if showTerms}
     <TermsModal
       {token}
-      isCodeUser={!isGoogleUser}
+      isCodeUser={user?.type === 'code_user'}
       viewOnly={termsViewOnly}
       onAccepted={() => { tosAccepted = true; showTerms = false; termsViewOnly = false; }}
       onDeclined={() => { showTerms = false; termsViewOnly = false; }}
@@ -788,7 +790,7 @@
     border: none;
     padding: 0.15rem 0.2rem;
     font-family: 'DM Mono', monospace;
-    font-size: 0.58rem;
+    font-size: 0.72rem;
     letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.25);
     cursor: pointer;
@@ -799,7 +801,7 @@
 
   .footer-divider {
     font-family: 'DM Mono', monospace;
-    font-size: 0.58rem;
+    font-size: 0.72rem;
     color: rgba(255, 255, 255, 0.1);
     line-height: 1;
     user-select: none;
