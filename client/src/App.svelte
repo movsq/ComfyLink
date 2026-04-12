@@ -551,6 +551,14 @@
 </script>
 
 <div class="app">
+  {#if !window.isSecureContext}
+    <div class="secure-context-banner">
+      <strong>⚠ Encryption unavailable</strong> —
+      this app requires a secure context. Open it via <code>https://</code> or <code>http://localhost</code>,
+      not a plain <code>http://</code> IP address. WebCrypto is blocked by your browser on insecure origins.
+    </div>
+  {/if}
+
   {#if (wsError || wsState === 'reconnecting' || wsState === 'exhausted') && view !== 'login'}
     <div class="ws-banner">
       <span>{wsError || (wsState === 'exhausted' ? 'Reconnect failed. Tap Retry Connection to resume live updates.' : 'Connection lost — reconnecting...')}</span>
@@ -735,6 +743,23 @@
   .app {
     min-height: 100dvh;
     touch-action: pan-y;
+  }
+
+  .secure-context-banner {
+    background: #7f1d1d;
+    border-bottom: 1px solid #b91c1c;
+    color: #fca5a5;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    padding: 0.6rem 1.2rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .secure-context-banner code {
+    background: rgba(0,0,0,0.3);
+    border-radius: 3px;
+    padding: 0.05em 0.3em;
   }
 
   .ws-banner {

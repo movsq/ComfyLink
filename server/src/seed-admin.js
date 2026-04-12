@@ -24,7 +24,7 @@ const user = findUserByEmail(email);
 
 if (!user) {
   console.error(`No user found with email "${email}".`);
-  console.error('The user must sign in with Google first to create their account.');
+  console.error('The user must register an account first before they can be promoted to admin.');
   process.exit(1);
 }
 

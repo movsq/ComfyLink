@@ -11,9 +11,11 @@ This guide covers everything you need to get ComfyLink running.
 | Component | Requirement |
 |-----------|-------------|
 | **PC** | NVIDIA GPU with ≥ 12 GB VRAM, [ComfyUI](https://github.com/comfyanonymous/ComfyUI) installed |
-| **VPS** | Any Linux VPS with Docker + Docker Compose (or a Tailscale-connected machine) |
+| **VPS** | Any Linux VPS with Docker + Docker Compose (Tier 2 only) |
 | **Phone** | Any modern browser with WebAuthn/PRF support (Chrome 118+, Safari 17.4+) |
 | **Google Cloud project** | OAuth 2.0 Client ID for user authentication (free tier is fine) |
+
+> **WebCrypto / Secure Context requirement.** Your browser must be served from a secure context — `https://` or `http://localhost`. A plain LAN IP such as `http://192.168.x.x` is **not** a secure context and will not work. The setup wizard enforces this: Tier 1 defaults to `http://localhost` for same-machine access and requires Tailscale for phone/remote access.
 
 ---
 
@@ -103,6 +105,65 @@ cd server && node src/seed-admin.js your@email.com
 ```
 
 See [docs/ADMIN.md](docs/ADMIN.md) for managing users and invite codes from that point on.
+
+---
+
+## Phone / tablet access via Tailscale  (Tier 1 — no VPS needed)
+
+Tailscale creates a private encrypted mesh network that gives every device in your network a stable hostname with a real HTTPS certificate. This satisfies the secure context requirement WebCrypto needs — without a public VPS, without port forwarding, and without exposing your PC to the internet.
+
+### Prerequisites
+
+- [Tailscale account](https://tailscale.com/) (free tier supports personal use)
+- Tailscale installed on this PC
+
+### Steps
+
+**1. Enable MagicDNS and HTTPS Certificates in the Tailscale admin console**
+
+Go to [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), enable **MagicDNS**, and then enable **HTTPS Certificates** (same page). Your PC will be reachable at a hostname like `my-pc.tail1234.ts.net` with a valid certificate.
+
+**2. Set `FLUX_KLEIN_HOST` in your `.env`**
+
+```env
+FLUX_KLEIN_HOST=my-pc.tail1234.ts.net
+DEPLOY_MODE=local
+```
+
+Replace `my-pc.tail1234.ts.net` with your actual MagicDNS hostname (shown in the Tailscale admin console → Machines).
+
+**3. Enable `tls internal` in the Caddyfile**
+
+Open `Caddyfile` and uncomment the `tls internal` line:
+
+```
+{my-pc.tail1234.ts.net} {
+    tls internal       # ← uncomment this line
+    ...
+}
+```
+
+> The setup wizard (Tier 1 → Tailscale path) does this automatically.
+
+**4. Start the server**
+
+```bash
+# Direct (from project root):
+node server/src/index.js
+
+# Or with Docker Compose:
+docker compose up -d
+```
+
+**5. Install Tailscale on your phone**
+
+Download Tailscale for [iOS](https://apps.apple.com/app/tailscale/id1470499037) or [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn.android), sign in with the same account, and connect.
+
+**6. Open ComfyLink on your phone**
+
+Navigate to `https://my-pc.tail1234.ts.net` in your phone's browser. The connection is private to your Tailscale network — no one else can reach it.
+
+> **Must be on Tailscale.** Your phone must have the Tailscale app open and connected to reach this URL. If you close Tailscale on your phone, the site becomes unreachable from that device until you reconnect.
 
 ---
 

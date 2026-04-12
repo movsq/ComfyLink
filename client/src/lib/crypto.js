@@ -17,13 +17,22 @@
  *   7. decryptPayload(aesKey, iv, ct)      — decrypt → Uint8Array
  */
 
-const subtle = crypto.subtle;
+function getSubtle() {
+  const s = crypto?.subtle;
+  if (!s) {
+    throw new Error(
+      'WebCrypto is unavailable. This app requires a secure context.\n' +
+      'Open it via https:// or http://localhost — not an http:// LAN IP address.'
+    );
+  }
+  return s;
+}
 
 // ── Key generation ────────────────────────────────────────────────────────────
 
 /** Generate an ephemeral ECDH keypair (P-256). Used once per submitted job. */
 export async function generateEphemeralKeyPair() {
-  return subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
+  return getSubtle().generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']);
 }
 
 /**
@@ -32,7 +41,7 @@ export async function generateEphemeralKeyPair() {
  */
 export async function importPcPublicKey(b64) {
   const raw = b64ToBuffer(b64);
-  return subtle.importKey(
+  return getSubtle().importKey(
     'spki',
     raw,
     { name: 'ECDH', namedCurve: 'P-256' },
@@ -51,16 +60,16 @@ export async function importPcPublicKey(b64) {
  */
 export async function deriveAESKey(ephPrivateKey, pcPublicKey) {
   // Step 1: ECDH → extract raw shared secret bits (P-256 → 256 bits)
-  const ecdhRaw = await subtle.deriveBits(
+  const ecdhRaw = await getSubtle().deriveBits(
     { name: 'ECDH', public: pcPublicKey },
     ephPrivateKey,
     256,
   );
 
   // Step 2: Import as HKDF key material, then derive AES-256-GCM key
-  const hkdfKey = await subtle.importKey('raw', ecdhRaw, 'HKDF', false, ['deriveKey']);
+  const hkdfKey = await getSubtle().importKey('raw', ecdhRaw, 'HKDF', false, ['deriveKey']);
 
-  return subtle.deriveKey(
+  return getSubtle().deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
@@ -85,7 +94,7 @@ export async function deriveAESKey(ephPrivateKey, pcPublicKey) {
 export async function encryptPayload(aesKey, data) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = new Uint8Array(
-    await subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, data),
+    await getSubtle().encrypt({ name: 'AES-GCM', iv }, aesKey, data),
   );
   return { iv, ciphertext };
 }
@@ -98,7 +107,7 @@ export async function encryptPayload(aesKey, data) {
  * @returns {Uint8Array}
  */
 export async function decryptPayload(aesKey, iv, ciphertext) {
-  const plaintext = await subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext);
+  const plaintext = await getSubtle().decrypt({ name: 'AES-GCM', iv }, aesKey, ciphertext);
   return new Uint8Array(plaintext);
 }
 
@@ -109,7 +118,7 @@ export async function decryptPayload(aesKey, iv, ciphertext) {
  * do ECDH from its end and derive the same AES key).
  */
 export async function exportEphemeralPublicKey(ephPublicKey) {
-  const spki = await subtle.exportKey('spki', ephPublicKey);
+  const spki = await getSubtle().exportKey('spki', ephPublicKey);
   return new Uint8Array(spki);
 }
 

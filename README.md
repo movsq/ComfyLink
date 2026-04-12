@@ -2,9 +2,11 @@
 
 **Generate with Flux 2 from your phone. End-to-end encrypted. Your prompts stay yours.**
 
-Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. You deploy a lightweight relay server on a cheap VPS (or a Tailscale-connected machine); your PC connects to it outbound. The relay is architecturally blind: it forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
+Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. Your PC connects outbound to a lightweight relay; the relay forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
----
+<details>
+<summary><b>Screenshots</b></summary>
+<br>
 
 <table>
   <tr>
@@ -29,21 +31,66 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
   </tr>
 </table>
 
+</details>
+
 ---
 
 ## How it works
 
 ```
-[Any browser] ──── WSS encrypted ────▶ [VPS relay] ──── WSS encrypted ────▶ [PC + ComfyUI]
+[Any browser] ──── WSS encrypted ────▶ [Relay server] ──── WSS encrypted ────▶ [Your PC + ComfyUI]
 ```
 
-Your PC runs ComfyUI and a lightweight Python bridge. It connects *outbound* to the relay — no port-forwarding, no dynamic DNS, no firewall rules. The relay brokers WebSocket connections between your browser and your PC; it never decrypts anything.
-
-**One PC per deployment.** ComfyLink is designed for personal or small-group use. You run the relay, you control who gets in. The relay and your PC authenticate through a shared secret (`PC_SECRET`); this is a 1:1 relationship by design.
-
-**No public VPS required.** If you run [Tailscale](https://tailscale.com/) on both your PC and VPS, you can skip exposing the relay to the public internet entirely and keep everything inside your private mesh network.
+Your PC connects *outbound* to the relay — no port-forwarding, no dynamic DNS, no firewall rules needed. The relay brokers WebSocket connections between your browser and your PC; it never decrypts anything. ComfyLink is designed for personal or small-group use: you run the relay, you control who gets in.
 
 ---
+
+## Get started
+
+Run the interactive setup wizard from the project root — it handles keys, config, dependencies, and launcher scripts:
+
+```bash
+python ComfyLink-Setup/setup.py
+```
+
+Pick the deployment tier that fits your use case:
+
+> **Secure context required.** WebCrypto (end-to-end encryption) only works when your browser is served from `https://` or `http://localhost`. A plain LAN IP (`http://192.168.x.x`) is not a secure context and will not work.
+
+### Tier 1 — Local / Private
+
+The server runs on your PC. Open `http://localhost:3000/` in a browser on the same machine.
+
+**For phone, tablet, or remote access** — install [Tailscale](https://tailscale.com/) on your PC and on every device you want to use. Tailscale creates a private encrypted mesh network and provisions real HTTPS certificates via MagicDNS, satisfying the secure context requirement WebCrypto needs. No VPS, no ports forwarded, no firewall rules.
+
+→ [Local / Tailscale setup guide](SETUP.md)
+
+### Tier 2 — Public / Self-hosted
+
+Deploy the relay to a cheap VPS with Docker and HTTPS (Caddy handles TLS automatically). Cloudflare proxy is optional and supported out of the box. Anyone with an invite code or a Google account can use it from any browser, anywhere — no VPN required.
+
+→ [VPS deployment guide](SETUP.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [SETUP.md](SETUP.md) | Full setup guide for all deployment modes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
+| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale, Cloudflare proxy |
+| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol reference |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
+| [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy chain, vault data model, deployer legal position |
+| [docs/TOS.md](docs/TOS.md) | Terms of Service and legal framework |
+| [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
+
+---
+
 
 ## Features
 
@@ -69,25 +116,6 @@ Your PC runs ComfyUI and a lightweight Python bridge. It connects *outbound* to 
 - **Audit log:** each job submission records IP address, timestamp, job ID, and identity (Google sub + email for Google users; code ID for access-code users) — no image content ever enters the log; entries are automatically deleted after 6 months
 
 Full detail, the deployer legal position on compelled decryption, and a plaintext metadata audit → [docs/PRIVACY.md](docs/PRIVACY.md)
-
----
-
-## Get started
-
-Ready to install? → **[SETUP.md](SETUP.md)**
-
-| Doc | Contents |
-|-----|----------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
-| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale, Cloudflare proxy |
-| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol message reference |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
-| [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
-| [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy chain, vault data model, deployer legal position |
-| [docs/TOS.md](docs/TOS.md) | Terms of Service and legal framework |
-| [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
 
 ---
 
