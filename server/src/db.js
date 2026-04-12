@@ -285,6 +285,17 @@ if (db.pragma('user_version', { simple: true }) < 10) {
   db.pragma('user_version = 10');
 }
 
+if (db.pragma('user_version', { simple: true }) < 11) {
+  // v11: Add ip_address column to code_auth_failures to enable per-IP rate limiting,
+  // replacing the previous global-only lockout that could be weaponised for DoS.
+  try { db.exec("ALTER TABLE code_auth_failures ADD COLUMN ip_address TEXT NOT NULL DEFAULT ''"); } catch { /* already exists on fresh DB */ }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_code_auth_failures_ip_at
+      ON code_auth_failures(ip_address, attempted_at);
+  `);
+  db.pragma('user_version = 11');
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -446,10 +457,13 @@ const stmtPruneJobAuditLogs = db.prepare(
 
 // Global code auth failure tracking (brute-force protection)
 const stmtInsertAuthFailure = db.prepare(
-  'INSERT INTO code_auth_failures (attempted_at) VALUES (?)',
+  "INSERT INTO code_auth_failures (ip_address, attempted_at) VALUES (?, ?)",
 );
 const stmtCountRecentAuthFailures = db.prepare(
   'SELECT COUNT(*) AS cnt FROM code_auth_failures WHERE attempted_at >= ?',
+);
+const stmtCountRecentAuthFailuresByIp = db.prepare(
+  'SELECT COUNT(*) AS cnt FROM code_auth_failures WHERE ip_address = ? AND attempted_at >= ?',
 );
 const stmtPruneOldAuthFailures = db.prepare(
   'DELETE FROM code_auth_failures WHERE attempted_at < ?',
@@ -688,11 +702,11 @@ export function getAllUsers(status = null) {
 // Global code-auth brute-force tracking
 
 /**
- * Record a failed invite-code auth attempt.
- * Call this whenever a code_auth or /auth/code request fails validation.
+ * Record a failed invite-code auth attempt, keyed by client IP for per-IP rate limiting.
+ * Call this whenever a /auth/code request fails validation.
  */
-export function recordCodeAuthFailure() {
-  stmtInsertAuthFailure.run(Date.now());
+export function recordCodeAuthFailure(ip = '') {
+  stmtInsertAuthFailure.run(ip, Date.now());
 }
 
 /**
@@ -700,6 +714,13 @@ export function recordCodeAuthFailure() {
  */
 export function getRecentCodeAuthFailureCount(windowMs) {
   return stmtCountRecentAuthFailures.get(Date.now() - windowMs)?.cnt ?? 0;
+}
+
+/**
+ * Count failed code-auth attempts from a specific IP within the given window (ms).
+ */
+export function getRecentCodeAuthFailureCountByIp(ip, windowMs) {
+  return stmtCountRecentAuthFailuresByIp.get(ip, Date.now() - windowMs)?.cnt ?? 0;
 }
 
 /**

@@ -13,6 +13,7 @@ The public key is also printed as base64 so you can copy-paste it if needed.
 
 import base64
 import getpass
+import hashlib
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ec import (
     generate_private_key,
@@ -71,6 +72,8 @@ def main() -> None:
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     print(f"\n[keygen] Public key (base64 SPKI — sent to server):\n{base64.b64encode(pub_der).decode()}\n")
+    fingerprint = hashlib.sha256(pub_der).hexdigest()
+    print(f"[keygen] Add to .env:  PC_PUBLIC_KEY_FINGERPRINT={fingerprint}")
     print("[keygen] Done. Back up private_key.pem in a safe place.")
 
 

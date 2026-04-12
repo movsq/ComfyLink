@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
@@ -50,6 +50,7 @@ import db, {
   updateTosAccepted,
   recordCodeAuthFailure,
   getRecentCodeAuthFailureCount,
+  getRecentCodeAuthFailureCountByIp,
   pruneCodeAuthFailures,
   insertRevokedToken,
   pruneRevokedTokens,
@@ -97,6 +98,18 @@ const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
 // When true (default), ALL new registrations require a valid registration invite code.
 // Set to false only for trusted-network open-registration deployments.
 const INVITE_REQUIRED = process.env.INVITE_REQUIRED !== 'false';
+
+// PC public key fingerprint pinning.
+// Set PC_PUBLIC_KEY_FINGERPRINT in .env to the SHA-256 hex digest printed by keygen.py.
+// Colons are stripped for convenience (both '4a3b...' and '4a:3b:...' forms accepted).
+// When set, a pubkey message from the PC whose key does not match is rejected immediately.
+const _pcFingerprintHex = (process.env.PC_PUBLIC_KEY_FINGERPRINT ?? '').replace(/:/g, '').toLowerCase();
+const PC_KEY_FINGERPRINT = _pcFingerprintHex.length === 64
+  ? Buffer.from(_pcFingerprintHex, 'hex')
+  : null;
+if (!PC_KEY_FINGERPRINT && process.env.DEPLOY_MODE === 'remote') {
+  console.warn('[security] PC_PUBLIC_KEY_FINGERPRINT is not set — PC public key is unpinned. Add it to .env to prevent key-substitution attacks.');
+}
 
 // ── Per-user submit rate limiter (persists across reconnects) ─────────────────
 const WS_SUBMIT_WINDOW_MS = 60_000;
@@ -806,17 +819,27 @@ app.post('/auth/code', (req, res) => {
     return res.status(400).json({ error: 'code required' });
   }
 
-  // Global brute-force guard: if the system has seen ≥100 failures in the last
-  // 60 s across all IPs, stop accepting guesses entirely.
+  const ip = req.ip ?? 'unknown';
+
+  // Per-IP hard block: ≥ 20 failures from this IP in the last 60 s.
   const CODE_BF_WINDOW_MS = 60_000;
-  const CODE_BF_MAX = 100;
-  if (getRecentCodeAuthFailureCount(CODE_BF_WINDOW_MS) >= CODE_BF_MAX) {
+  const CODE_BF_IP_MAX = 20;
+  if (getRecentCodeAuthFailureCountByIp(ip, CODE_BF_WINDOW_MS) >= CODE_BF_IP_MAX) {
+    return res.status(429).json({ error: 'Too many failed attempts — try again later' });
+  }
+
+  // Global soft circuit breaker: ≥ 500 failures across all IPs in last 60 s.
+  // Only fires under extreme coordinated flooding; individual well-behaved IPs
+  // are governed solely by the per-IP check above.
+  const CODE_BF_GLOBAL_MAX = 500;
+  if (getRecentCodeAuthFailureCount(CODE_BF_WINDOW_MS) >= CODE_BF_GLOBAL_MAX) {
+    console.warn('[security] Global code-auth failure threshold reached — possible flood attack.');
     return res.status(429).json({ error: 'Too many failed attempts — try again later' });
   }
 
   const row = validateInviteCode(code.trim().toUpperCase(), 'job_access');
   if (!row) {
-    recordCodeAuthFailure();
+    recordCodeAuthFailure(ip);
     return res.status(400).json({ error: 'Invalid or expired access code' });
   }
 
@@ -1296,6 +1319,26 @@ function handlePcMessage(raw) {
   }
 
   if (msg.type === 'pubkey') {
+    if (PC_KEY_FINGERPRINT) {
+      let keyBytes;
+      try {
+        keyBytes = Buffer.from(msg.publicKey ?? '', 'base64');
+      } catch {
+        console.warn('[pc] pubkey message has invalid base64 — rejecting.');
+        if (pcSocket) pcSocket.close(4003, 'Invalid public key');
+        pcSocket = null;
+        pcPublicKeyB64 = null;
+        return;
+      }
+      const incoming = createHash('sha256').update(keyBytes).digest();
+      if (!timingSafeEqual(incoming, PC_KEY_FINGERPRINT)) {
+        console.warn('[pc] Public key fingerprint mismatch — rejecting connection.');
+        if (pcSocket) pcSocket.close(4003, 'Public key fingerprint mismatch');
+        pcSocket = null;
+        pcPublicKeyB64 = null;
+        return;
+      }
+    }
     pcPublicKeyB64 = msg.publicKey;
     console.log('[pc] Public key cached.');
     return;
@@ -1491,14 +1534,21 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken, clientIp) {
 
   // Send initial queue state
   const recovered = [];
-  const recoverableJobs = getRecoverableJobsByUserId(queueUserId);
-  for (const job of recoverableJobs) {
-    if (job.ownerSessionId && job.ownerSessionId !== wsSessionId && isSessionOnline(job.ownerSessionId)) {
-      continue;
-    }
-    if (reclaimJob(job.id, ws, wsSessionId)) {
-      const snap = getJobSnapshot(job.id);
-      if (snap) recovered.push(snap);
+  // Job recovery and result replay are intentionally skipped for code users.
+  // Multiple sessions can share the same code (and therefore the same queueUserId),
+  // so re-binding pending/completed jobs on reconnect would allow one session to
+  // cancel or consume another session's work.  Google/email users each have a
+  // unique userId so cross-session interference cannot occur for them.
+  if (jwtPayload.type !== 'code_user') {
+    const recoverableJobs = getRecoverableJobsByUserId(queueUserId);
+    for (const job of recoverableJobs) {
+      if (job.ownerSessionId && job.ownerSessionId !== wsSessionId && isSessionOnline(job.ownerSessionId)) {
+        continue;
+      }
+      if (reclaimJob(job.id, ws, wsSessionId)) {
+        const snap = getJobSnapshot(job.id);
+        if (snap) recovered.push(snap);
+      }
     }
   }
 
@@ -1510,18 +1560,20 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken, clientIp) {
   }
 
   // Replay completed results that finished while the owner was offline.
-  const completed = getCompletedJobsByUserId(queueUserId);
-  for (const job of completed) {
-    const payload = Buffer.isBuffer(job.encryptedResult)
-      ? job.encryptedResult.toString('base64')
-      : String(job.encryptedResult ?? '');
-    if (!payload) {
+  if (jwtPayload.type !== 'code_user') {
+    const completed = getCompletedJobsByUserId(queueUserId);
+    for (const job of completed) {
+      const payload = Buffer.isBuffer(job.encryptedResult)
+        ? job.encryptedResult.toString('base64')
+        : String(job.encryptedResult ?? '');
+      if (!payload) {
+        deleteJob(job.id);
+        continue;
+      }
+      const delivered = sendJson(ws, { type: 'result', jobId: job.id, payload });
+      if (!delivered) break;
       deleteJob(job.id);
-      continue;
     }
-    const delivered = sendJson(ws, { type: 'result', jobId: job.id, payload });
-    if (!delivered) break;
-    deleteJob(job.id);
   }
 
   // ── Periodic re-validation: close socket if user is no longer active ────────
