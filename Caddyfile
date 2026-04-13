@@ -32,7 +32,9 @@
 }
 
 {$FLUX_KLEIN_HOST:localhost} {
-    # ── Uncomment for Tailscale or other private-CA networks ──────────────────
+    # ── TLS: only needed when Tailscale HTTPS Certificates are NOT enabled ──────
+    # Tailscale HTTPS Certs ON  → leave commented (Caddy auto-provisions via Tailscale ACME)
+    # Tailscale HTTPS Certs OFF → uncomment for Caddy's self-signed CA (desktop OK; mobile may warn)
     # tls internal
 
     # ── Security headers ──────────────────────────────────────────────────────

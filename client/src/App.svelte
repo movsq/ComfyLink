@@ -177,6 +177,7 @@
         result: msg,
         aesKey: entry.aesKey,
         promptSnippet: (entry.promptText ?? '').slice(0, 80),
+        thumbnail: typeof msg.thumbnail === 'string' ? msg.thumbnail : null,
         imageUrl: null,
         expiresAt: Date.now() + 120_000, // 2-min shelf window starts now
       }];
@@ -620,6 +621,7 @@
         onUseAsInput={handleUseAsInput}
         initialSaved={item.saved ?? false}
         onSaved={() => handleResultSaved(item.id)}
+        thumbnailB64={item.thumbnail ?? null}
       />
     {/each}
   {/if}

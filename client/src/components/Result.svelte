@@ -1,10 +1,10 @@
 <script>
   import { onDestroy, untrack } from 'svelte';
   import { decodeResultPayload, decryptPayload } from '../lib/crypto.js';
-  import { encryptBlob, bufToB64 } from '../lib/vault-crypto.js';
+  import { encryptBlob, bufToB64, b64ToBuf } from '../lib/vault-crypto.js';
   import { saveResult } from '../lib/api.js';
 
-  let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null, onUseAsInput = null, initialSaved = false, onSaved = () => {} } = $props();
+  let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null, onUseAsInput = null, initialSaved = false, onSaved = () => {}, thumbnailB64 = null } = $props();
 
   let imageUrl = $state(null);
   let imageBytes = $state(null); // raw PNG bytes, kept alongside imageUrl for save
@@ -125,12 +125,28 @@
       // Encrypt full image
       const { ciphertext: encFull, iv: ivFull } = await encryptBlob(masterKey, fullBuf);
 
+      // Encrypt thumbnail if one was relayed from the PC
+      let encryptedThumb = null;
+      let ivThumb = null;
+      if (thumbnailB64) {
+        try {
+          const thumbBytes = b64ToBuf(thumbnailB64);
+          const { ciphertext: encT, iv: ivT } = await encryptBlob(masterKey, thumbBytes);
+          encryptedThumb = bufToB64(encT);
+          ivThumb = bufToB64(ivT);
+        } catch {
+          // Non-fatal: save without thumbnail if encryption fails
+        }
+      }
+
       try {
         await saveResult(token, {
           encryptedFull: bufToB64(encFull),
           ivFull: bufToB64(ivFull),
           fullSizeBytes: fullBuf.length,
           jobId: result?.jobId ?? null,
+          encryptedThumb,
+          ivThumb,
         });
       } catch (err) {
         // 409 means this job was already saved — treat as success

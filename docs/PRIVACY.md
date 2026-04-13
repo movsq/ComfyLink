@@ -14,6 +14,8 @@ Every job submission (prompt text, reference images) is encrypted on-device befo
 
 Completed results are stored in the relay's database as encrypted blobs. The master key that decrypts them is held entirely by you: it is wrapped using your biometric/passkey, password, or recovery phrase and never transmitted to the server in usable form.
 
+This applies to gallery thumbnails as well. The PC generates a 200 px WebP thumbnail alongside the full image, and the browser encrypts it with your vault master key before uploading — the same AES-256-GCM envelope used for full images. The relay stores the ciphertext and hands back the encrypted blob when you open the gallery; your browser decrypts it locally. The server never sees the thumbnail in readable form.
+
 A data access request under GDPR Article 15 would receive those blobs — meaningless without your key. For erasure requests under Article 17, deleting the blobs from the database satisfies the request in full, because no plaintext was ever stored server-side.
 
 **Deployer note:** You cannot be compelled to decrypt vault contents you do not hold keys for. What you hold is ciphertext. Handing it over satisfies a lawful order; decryption remains technically impossible without the user's key. This is the same legal position used by Signal and ProtonMail — compliance without exposure.
@@ -36,9 +38,9 @@ The pc-client additionally deletes each prompt from ComfyUI's in-memory history 
 
 ### 4. Plaintext metadata
 
-The relay server does store some plaintext metadata per user account: email address (Google-authenticated and email/password users), `tos_accepted_at` timestamp, quota counters, and job submission timestamps. This is real personal data subject to GDPR access and erasure requests. Ensure your admin tooling can export and wipe a user record cleanly.
+The relay server does store some plaintext metadata per user account: email address (Google-authenticated and email/password users), `tos_accepted_at`, `tos_version`, quota counters, and job submission timestamps. This is real personal data subject to GDPR access and erasure requests. Ensure your admin tooling can export and wipe a user record cleanly.
 
-Prompt content, image data, and vault blobs are never stored in plaintext.
+Prompt content, reference images, and full vault blobs are never stored in plaintext.
 
 ---
 
@@ -54,7 +56,8 @@ The relay server logs only what is necessary for operation. Prompt content and i
 |------|----------------|-----------------|
 | Prompt text | Encrypted in transit; never stored on relay | Only the PC decrypts it |
 | Reference images | Encrypted in transit; never stored on relay | Only the PC decrypts it |
-| Generated images (in-session) | Encrypted blobs in relay DB | Only the user (via vault key) |
+| Gallery thumbnail | Encrypted blob in relay DB | Only the user (via vault master key) |
+| Generated images (in-session) | Plaintext on the PC during generation; ciphertext on the relay while relaying | The PC processes it; the user decrypts the delivered payload |
 | Vault results | Encrypted blobs in relay DB | Only the user (via vault master key) |
 | User email / timestamps | Plaintext in relay DB | Deployer / admin |
 | ComfyUI job history | In-memory only (RAM); deleted after download | Not persisted |

@@ -82,7 +82,12 @@ Codes have the format `KLEIN-XXXX-XXXX` (8 characters drawn from a 32-symbol una
 
 ### Brute-force protection
 
-In addition to per-IP HTTP rate limiting, the server maintains a **global failed-attempt counter** in the database.  If 100 or more failed `/auth/code` requests are recorded within any 60-second window — regardless of source IP — the endpoint returns `429` until the window clears.  This prevents distributed guessing across many IPs from being effective.
+`POST /auth/code` now uses two layers:
+
+- **Per-IP hard block:** 20 failed attempts from the same IP in 60 seconds → `429`
+- **Global flood circuit breaker:** 500 failed attempts across all IPs in 60 seconds → `429`
+
+This preserves normal per-IP protection while still slowing coordinated distributed guessing.
 
 ---
 
@@ -106,9 +111,11 @@ The code's validity (expiry, remaining uses) is re-checked on every WebSocket au
 
 All users are subject to the Terms of Service regardless of how they authenticate.
 
-**Google-authenticated and email/password users** must explicitly accept via the ToS modal — presented on first login and re-shown if the user attempts to generate without having accepted. Acceptance is recorded server-side (`tos_accepted_at` timestamp in the `users` table).
+**Google-authenticated and email/password users** must explicitly accept via the ToS modal — presented on first login and re-shown if the user attempts to generate without having accepted. Acceptance is recorded server-side in `users.tos_accepted_at` and `users.tos_version`.
 
-**Access code users** are bound by the same terms upon first use of the Service. The ToS (Section 5) expressly identifies invite-code access as a covered access method; admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
+`TOS_VERSION` is derived from a hash of `server/src/tos-content.js`, so it is treated as an opaque value. Current acceptance means `users.tos_version === TOS_VERSION`, not `>=`.
+
+**Access code users** are bound by the same terms upon first use of the Service. The client still shows the modal, but acceptance is not persisted server-side because code-user sessions do not have a `users` row. Admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
 
 The terms reference Czech Republic applicable law:
 

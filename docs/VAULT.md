@@ -35,9 +35,9 @@ At least the recovery method is always configured. Bio and password are optional
 
 Results are AES-256-GCM encrypted client-side before upload. The server stores:
 
-- A 200 px WebP thumbnail (encrypted)
+- The encrypted thumbnail (200 px WebP, encrypted with the vault master key before upload)
 - The full image (encrypted, max 20 MB per result)
 
-IVs are stored separately. The server never sees the master key or plaintext.
+IVs are stored alongside each ciphertext. The server never sees the vault master key, the plaintext image, or the plaintext thumbnail.
 
 See [API.md](API.md) for the full `/results` endpoint reference.

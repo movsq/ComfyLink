@@ -117,3 +117,7 @@ The relay is a **blind relay** — it cannot read job payloads or results.
 ### PC secret verification
 
 The server compares `PC_SECRET` using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
+
+### Optional worker key pinning
+
+If `PC_PUBLIC_KEY_FINGERPRINT` is set, the server hashes the `pubkey` message sent by the pc-client and rejects the connection if the fingerprint does not match. This prevents a substituted worker key from being accepted silently.

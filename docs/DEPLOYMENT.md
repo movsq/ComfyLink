@@ -22,7 +22,7 @@ See [SETUP.md — Phone / tablet access via Tailscale](../SETUP.md#phone--tablet
 **Summary:**
 1. Enable **MagicDNS** + **HTTPS Certificates** in the Tailscale admin console
 2. Set `FLUX_KLEIN_HOST=your-pc.tail1234.ts.net` and `DEPLOY_MODE=local` in `.env`
-3. Uncomment `tls internal` in `Caddyfile`
+3. Leave `Caddyfile` unchanged when using Tailscale HTTPS Certificates
 4. Start the server; install Tailscale on your phone and connect
 5. Open `https://your-pc.tail1234.ts.net` on your phone
 
@@ -55,6 +55,8 @@ FLUX_KLEIN_HOST=your-hostname.example.com
 ALLOWED_ORIGINS=https://your-hostname.example.com
 EOF
 ```
+
+Recommended: set `PC_PUBLIC_KEY_FINGERPRINT` as well, using the SHA-256 value printed by `pc-client/keygen.py`, so the relay pins the worker public key in remote deployments.
 
 ---
 
@@ -104,8 +106,10 @@ If you want to restrict a VPS deployment so only Tailscale members can reach it 
 1. Install Tailscale on VPS: `curl -fsSL https://tailscale.com/install.sh | sh && tailscale up --ssh`
 2. Enable **MagicDNS** + **HTTPS Certificates** in the [Tailscale admin console](https://login.tailscale.com/admin/dns)
 3. Set `FLUX_KLEIN_HOST=your-vps.tailXXXXX.ts.net` in your VPS `.env`
-4. Uncomment `tls internal` in `Caddyfile`
-5. Set `SKIP_TLS_VERIFY=true` in your local `.env` (so pc-client accepts the Tailscale cert)
+4. Leave `Caddyfile` unchanged when using Tailscale HTTPS Certificates
+5. Keep `SKIP_TLS_VERIFY=false` when the hostname has a valid Tailscale-issued Let's Encrypt cert
+
+If you intentionally use the self-signed `tls internal` fallback instead, then uncomment `tls internal` in `Caddyfile` and set `SKIP_TLS_VERIFY=true` for the pc-client.
 
 ---
 

@@ -70,7 +70,13 @@
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) {
-            const blob = await res.blob();
+            const { encryptedThumb, ivThumb } = await res.json();
+            const decrypted = await decryptBlob(
+              masterKey,
+              b64ToBuf(ivThumb),
+              b64ToBuf(encryptedThumb),
+            );
+            const blob = new Blob([decrypted], { type: 'image/webp' });
             r._thumbUrl = URL.createObjectURL(blob);
           } else {
             r._thumbUrl = null;

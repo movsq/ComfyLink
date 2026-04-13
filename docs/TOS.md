@@ -2,9 +2,11 @@
 
 All users are subject to the Terms of Service regardless of how they authenticate.
 
-**Google-authenticated users** must explicitly accept via the ToS modal — shown on first login and re-shown if a user attempts to generate without having accepted. Acceptance is recorded server-side (`tos_accepted_at` in the `users` table).
+**Google-authenticated and email/password users** must explicitly accept via the ToS modal — shown on first login and re-shown if a user attempts to generate without having accepted. Acceptance is recorded server-side in `users.tos_accepted_at` and `users.tos_version`.
 
-**Access code users** are bound by the same terms upon first use of the Service. The ToS (Section 5) expressly identifies invite-code access as a covered access method; admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
+`TOS_VERSION` is derived from a hash of `server/src/tos-content.js`, so acceptance is current only when `users.tos_version === TOS_VERSION`.
+
+**Access code users** are bound by the same terms upon first use of the Service. The client shows the same modal, but acceptance is not persisted server-side because code-user sessions do not have a `users` row. Admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
 
 The terms operate under the following legal framework:
 

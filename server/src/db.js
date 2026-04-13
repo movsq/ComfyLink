@@ -60,7 +60,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS stored_results (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         INTEGER NOT NULL REFERENCES users(id),
-    thumb           BLOB,
+    encrypted_thumb BLOB,
+    iv_thumb        BLOB,
     encrypted_full  BLOB    NOT NULL,
     iv_full         BLOB    NOT NULL,
     full_size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -298,6 +299,40 @@ if (db.pragma('user_version', { simple: true }) < 11) {
   db.pragma('user_version = 11');
 }
 
+if (db.pragma('user_version', { simple: true }) < 12) {
+  // v12: Replace plaintext server-side thumbnails with client-encrypted thumbnails.
+  // The old `thumb` column stored raw WebP bytes that were readable by anyone with
+  // DB access. The new `encrypted_thumb` + `iv_thumb` columns store AES-256-GCM
+  // ciphertext encrypted by the browser with the user's vault master key, giving
+  // thumbnails the same E2E encryption guarantee as the full images.
+  // Existing plaintext thumb data is discarded — it cannot be retroactively
+  // encrypted because the vault key never leaves the browser.
+  db.exec(`
+    DROP TABLE IF EXISTS stored_results_v12;
+    CREATE TABLE stored_results_v12 (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id         INTEGER NOT NULL REFERENCES users(id),
+      encrypted_thumb BLOB,
+      iv_thumb        BLOB,
+      encrypted_full  BLOB    NOT NULL,
+      iv_full         BLOB    NOT NULL,
+      full_size_bytes INTEGER NOT NULL DEFAULT 0,
+      job_id          TEXT    DEFAULT NULL,
+      created_at      INTEGER NOT NULL
+    );
+    INSERT INTO stored_results_v12 (id, user_id, encrypted_full, iv_full, full_size_bytes, job_id, created_at)
+      SELECT id, user_id, encrypted_full, iv_full, full_size_bytes, job_id, created_at
+      FROM stored_results;
+    DROP TABLE stored_results;
+    ALTER TABLE stored_results_v12 RENAME TO stored_results;
+    CREATE INDEX IF NOT EXISTS idx_stored_results_user_date
+      ON stored_results(user_id, created_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_results_user_job_id
+      ON stored_results(user_id, job_id) WHERE job_id IS NOT NULL;
+  `);
+  db.pragma('user_version = 12');
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 // Users
@@ -389,8 +424,8 @@ const stmtUpdateVault = db.prepare(`
 
 // Stored results
 const stmtCreateResult = db.prepare(`
-  INSERT INTO stored_results (user_id, thumb, encrypted_full, iv_full, full_size_bytes, job_id, created_at)
-  VALUES (@user_id, @thumb, @encrypted_full, @iv_full, @full_size_bytes, @job_id, @created_at)
+  INSERT INTO stored_results (user_id, encrypted_thumb, iv_thumb, encrypted_full, iv_full, full_size_bytes, job_id, created_at)
+  VALUES (@user_id, @encrypted_thumb, @iv_thumb, @encrypted_full, @iv_full, @full_size_bytes, @job_id, @created_at)
 `);
 
 const stmtFindResultByJobId = db.prepare(
@@ -398,11 +433,11 @@ const stmtFindResultByJobId = db.prepare(
 );
 
 const stmtListResults = db.prepare(
-  'SELECT id, (thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? AND id < ? ORDER BY created_at DESC LIMIT ?',
+  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? AND id < ? ORDER BY created_at DESC LIMIT ?',
 );
 
 const stmtListResultsFirst = db.prepare(
-  'SELECT id, (thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
 );
 
 const stmtGetResultFull = db.prepare(
@@ -410,7 +445,7 @@ const stmtGetResultFull = db.prepare(
 );
 
 const stmtGetResultThumb = db.prepare(
-  'SELECT thumb FROM stored_results WHERE id = ? AND user_id = ?',
+  'SELECT encrypted_thumb, iv_thumb FROM stored_results WHERE id = ? AND user_id = ?',
 );
 
 const stmtDeleteResult = db.prepare(
@@ -655,7 +690,8 @@ export function createStoredResult(userId, data) {
   const now = Date.now();
   const result = stmtCreateResult.run({
     user_id: userId,
-    thumb: data.thumb ?? null,
+    encrypted_thumb: data.encryptedThumb ?? null,
+    iv_thumb: data.ivThumb ?? null,
     encrypted_full: data.encryptedFull,
     iv_full: data.ivFull,
     full_size_bytes: data.fullSizeBytes ?? 0,

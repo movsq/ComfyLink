@@ -72,6 +72,7 @@ python keygen.py
 ```
 
 This creates `private_key.pem` and `public_key.pem` inside `pc-client/`.
+`keygen.py` can optionally encrypt the private key with a passphrase and prints a `PC_PUBLIC_KEY_FINGERPRINT=...` line you can add to `.env` for public-key pinning on the server.
 **Back up `private_key.pem`** — losing it means vault results encrypted to this key can no longer be decrypted.
 
 ### 5. Install ComfyUI models and custom nodes
