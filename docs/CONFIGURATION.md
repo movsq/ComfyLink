@@ -29,7 +29,7 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `MAX_TOTAL_QUEUE_DEPTH` | `50` | Global active queue cap across all users. |
 | `COMFYUI_URL` | `http://127.0.0.1:8188` | URL of the local ComfyUI instance — port must match **Settings → Server-Config → Port** in ComfyUI. |
 | `GGUF_MODEL` | `flux-2-klein-9b-Q4_K_M.gguf` | Default diffusion model used when none is sent by the client. |
-| `DB_PATH` | `./data/comfylink.db` | Path to the SQLite database file (server). |
+| `DB_PATH` | `<repo-root>/data/comfylink.db` | Path to the SQLite database file (server). Resolved relative to `server/src` when not set; the built-in default points to `data/comfylink.db` at the repo root. |
 | `SKIP_TLS_VERIFY` | `false` | Skip TLS verification (use only for Tailscale / self-signed certs). |
 | `PRIVATE_KEY_PATH` | `private_key.pem` | Path to the PC's private key PEM. When launching from repo root, the setup wizard writes `pc-client/private_key.pem`. |
 | `PUBLIC_KEY_PATH` | `public_key.pem` | Path to the PC's public key PEM. When launching from repo root, the setup wizard writes `pc-client/public_key.pem`. |

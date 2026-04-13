@@ -48,7 +48,7 @@ GOOGLE_CLIENT_ID=<your-oauth-client-id>
 VITE_GOOGLE_CLIENT_ID=<same-value>      # Vite must expose it with VITE_ prefix
 ```
 
-> **Google OAuth is optional.** E-mail/password login works without it. If `GOOGLE_CLIENT_ID` is not set, the Google sign-in button will not appear in the UI.
+> **Google OAuth is optional.** E-mail/password login works without it. If `GOOGLE_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` are not set (or left empty), the Google sign-in section is hidden and the Google Identity Services SDK is not initialised.
 
 > **Generate random secrets:** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 >
@@ -61,7 +61,7 @@ VITE_GOOGLE_CLIENT_ID=<same-value>      # Vite must expose it with VITE_ prefix
 3. Authorised JavaScript origins: `https://YOUR_DOMAIN` (or `http://localhost:5173` for dev)
 4. Copy the Client ID into `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` in `.env`
 
-> If you skip this step, the Google sign-in button will simply not appear. Users can still register with e-mail and password.
+> If you skip this step, the Google sign-in section does not appear and Google Identity Services is not loaded. Users can still register with e-mail and password.
 
 ### 4. Generate the PC keypair (first time only)
 

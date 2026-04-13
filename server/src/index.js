@@ -124,9 +124,10 @@ let pcPublicKeyB64 = null;
 
 // ── Thumbnail size guard ─────────────────────────────────────────────────────
 // The PC sends a raw 200px WebP thumbnail which the server validates and
-// relays to the browser. The browser encrypts it with the vault master key
-// before uploading in POST /results — so thumbnails get the same E2E
-// encryption guarantee as full images.
+// relays to the browser in plaintext over the WebSocket. The server may
+// therefore see the thumbnail transiently during live relay. The browser
+// encrypts it with the vault master key before uploading in POST /results,
+// so thumbnails are not stored server-side in plaintext.
 // Max thumbnail size as base64 chars: 256 KB binary ≈ 344 KB base64
 const THUMB_MAX_B64_LEN = 350_000;
 
@@ -727,8 +728,16 @@ app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) 
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encryptedThumb) || !/^[A-Za-z0-9+/]*={0,2}$/.test(ivThumb)) {
       return res.status(400).json({ error: 'Invalid base64 encoding in thumbnail' });
     }
+    // A 12-byte AES-GCM IV encodes to exactly 16 base64 characters (no padding).
+    // Reject anything longer before decoding to prevent oversized IV injection.
+    if (ivThumb.length > 16) {
+      return res.status(400).json({ error: 'Invalid IV length' });
+    }
     encThumbBuf = Buffer.from(encryptedThumb, 'base64');
     ivThumbBuf  = Buffer.from(ivThumb, 'base64');
+    if (ivThumbBuf.length !== 12) {
+      return res.status(400).json({ error: 'Invalid IV length' });
+    }
     // Encrypted thumb: ciphertext can be at most 256 KB + GCM tag (16 bytes)
     if (encThumbBuf.length > 270 * 1024) {
       return res.status(413).json({ error: 'Thumbnail too large' });
@@ -1402,7 +1411,7 @@ function handlePcMessage(raw) {
       }
     }
 
-    completeJob(msg.jobId, msg.payload);
+    completeJob(msg.jobId, msg.payload, relayedThumbnail);
     const relayMsg = { type: 'result', jobId: msg.jobId, payload: msg.payload };
     if (relayedThumbnail !== undefined) relayMsg.thumbnail = relayedThumbnail;
     const deliveredLive = sendJson(job.phoneWs, relayMsg);
@@ -1573,7 +1582,9 @@ function handlePhoneSocketAuthenticated(ws, jwtPayload, rawToken, clientIp) {
         deleteJob(job.id);
         continue;
       }
-      const delivered = sendJson(ws, { type: 'result', jobId: job.id, payload });
+      const replayMsg = { type: 'result', jobId: job.id, payload };
+      if (job.thumbnail) replayMsg.thumbnail = job.thumbnail;
+      const delivered = sendJson(ws, replayMsg);
       if (!delivered) break;
       deleteJob(job.id);
     }

@@ -18,7 +18,7 @@
  */
 
 function getSubtle() {
-  const s = crypto?.subtle;
+  const s = globalThis.crypto?.subtle;
   if (!s) {
     throw new Error(
       'WebCrypto is unavailable. This app requires a secure context.\n' +

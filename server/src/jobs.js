@@ -56,11 +56,12 @@ export function updateJobStatus(id, status) {
   return true;
 }
 
-export function completeJob(id, encryptedResult) {
+export function completeJob(id, encryptedResult, thumbnail) {
   const job = jobs.get(id);
   if (!job) return false;
   job.status = 'done';
   job.encryptedResult = encryptedResult;
+  job.thumbnail = thumbnail ?? null;
   job.completedAt = Date.now();
   // Record end-to-end duration for avg calculation (includes queue wait time)
   if (job.createdAt) {

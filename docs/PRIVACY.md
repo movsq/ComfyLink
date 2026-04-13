@@ -14,7 +14,7 @@ Every job submission (prompt text, reference images) is encrypted on-device befo
 
 Completed results are stored in the relay's database as encrypted blobs. The master key that decrypts them is held entirely by you: it is wrapped using your biometric/passkey, password, or recovery phrase and never transmitted to the server in usable form.
 
-This applies to gallery thumbnails as well. The PC generates a 200 px WebP thumbnail alongside the full image, and the browser encrypts it with your vault master key before uploading — the same AES-256-GCM envelope used for full images. The relay stores the ciphertext and hands back the encrypted blob when you open the gallery; your browser decrypts it locally. The server never sees the thumbnail in readable form.
+This applies to gallery thumbnails as well. The PC generates a 200 px WebP thumbnail alongside the full image and relays it to the browser in raw form over the live WebSocket — the relay may see the thumbnail transiently during delivery. The browser then encrypts it with your vault master key before uploading — the same AES-256-GCM envelope used for full images. The relay stores only the encrypted blob and hands it back when you open the gallery; your browser decrypts it locally. Thumbnails are never stored server-side in plaintext.
 
 A data access request under GDPR Article 15 would receive those blobs — meaningless without your key. For erasure requests under Article 17, deleting the blobs from the database satisfies the request in full, because no plaintext was ever stored server-side.
 

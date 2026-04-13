@@ -21,12 +21,15 @@
   // Reset dismiss flag whenever a new notice arrives
   $effect(() => { if (notice) noticeDismissed = false; });
 
-  // Wait for Google Identity Services to load, then initialize
+  // Wait for Google Identity Services to load, then initialize.
+  // Skip entirely when no client ID is configured — avoids GSI runtime errors.
+  const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   let gsiReady = $state(false);
   let googleBtnNode = $state(null);
   let btnVisible = $state(false);
 
   $effect(() => {
+    if (!GOOGLE_CLIENT_ID) return; // email-only deployment — do not load GSI
     if (typeof google !== 'undefined' && google.accounts) {
       initGsi();
     } else {
@@ -43,7 +46,7 @@
   function initGsi() {
     google.accounts.id.initialize({
       // @ts-ignore — GOOGLE_CLIENT_ID is injected by Vite from .env
-      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      client_id: GOOGLE_CLIENT_ID,
       callback: handleGoogleCredential,
       auto_select: false,
     });
@@ -176,6 +179,7 @@
         <span class="brand-sub">FLUX2 9B KLEIN &middot; REMOTE</span>
       </div>
 
+      {#if GOOGLE_CLIENT_ID}
       <div class="google-btn-wrap">
         <div class="google-btn-slot" class:loaded={btnVisible} bind:this={googleBtnNode}></div>
         {#if !btnVisible}
@@ -188,6 +192,7 @@
           </div>
         {/if}
       </div>
+      {/if}
 
       {#if notice && !noticeDismissed}
         <div class="notice">

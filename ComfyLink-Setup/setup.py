@@ -52,6 +52,10 @@ def _bootstrap_venv() -> None:
     )
 
     print("[setup] Restarting inside virtual environment ...")
+    # subprocess.run + sys.exit is used here instead of os.execv so that the
+    # parent process waits for the child and propagates its exit code cleanly
+    # on all platforms (os.execv replaces the process image, which can cause
+    # issues on Windows when the venv Python path differs from sys.executable).
     result = subprocess.run([str(venv_py)] + sys.argv)
     sys.exit(result.returncode)
 
@@ -246,10 +250,12 @@ def build_env_content(
         "# ── PC auth ────────────────────────────────────────────────────────",
         f"PC_SECRET={pc_secret}",
         "",
-        "# ── Google OAuth ────────────────────────────────────────────────────",
-        f"GOOGLE_CLIENT_ID={google_client_id}",
-        f"VITE_GOOGLE_CLIENT_ID={google_client_id}",
-        "",
+        *([
+            "# ── Google OAuth ────────────────────────────────────────────────────",
+            f"GOOGLE_CLIENT_ID={google_client_id}",
+            f"VITE_GOOGLE_CLIENT_ID={google_client_id}",
+            "",
+        ] if google_client_id else []),
         "# ── JWT ─────────────────────────────────────────────────────────────",
         f"JWT_SECRET={jwt_secret}",
         "",
@@ -1033,6 +1039,7 @@ def main() -> None:
             server_url, server_host, server_port = step_server_config_b()
             deploy_mode_env = "remote"
             enable_tailscale_tls = False
+            allowed_origins = server_url
 
         # ── Build .env ─────────────────────────────────────────────────────
         env_content = build_env_content(

@@ -38,6 +38,6 @@ Results are AES-256-GCM encrypted client-side before upload. The server stores:
 - The encrypted thumbnail (200 px WebP, encrypted with the vault master key before upload)
 - The full image (encrypted, max 20 MB per result)
 
-IVs are stored alongside each ciphertext. The server never sees the vault master key, the plaintext image, or the plaintext thumbnail.
+IVs are stored alongside each ciphertext. The server never sees the vault master key or the plaintext full image. Thumbnails are not stored server-side in plaintext — the browser encrypts them before upload — though the relay may see a thumbnail transiently during live WebSocket delivery.
 
 See [API.md](API.md) for the full `/results` endpoint reference.
