@@ -3,6 +3,7 @@
   import {
     generateEphemeralKeyPair,
     importPcPublicKey,
+    verifyPcKeyFingerprint,
     deriveAESKey,
     encryptPayload,
     exportEphemeralPublicKey,
@@ -372,6 +373,7 @@
     let offQueued = null;
     try {
       const pcPubKeyB64  = await getPCPublicKey(token);
+      await verifyPcKeyFingerprint(pcPubKeyB64);
       const pcPublicKey  = await importPcPublicKey(pcPubKeyB64);
       const ephKeyPair   = await generateEphemeralKeyPair();
       const aesKey       = await deriveAESKey(ephKeyPair.privateKey, pcPublicKey);

@@ -169,6 +169,31 @@ export function decodeJobPayload(b64) {
   return { ephPubKeyBytes, iv, ciphertext };
 }
 
+// ── Key pinning ──────────────────────────────────────────────────────────
+
+/**
+ * Verify the PC public key fingerprint against the build-time pinned value.
+ * @param {string} b64 — base64-encoded SPKI DER bytes (as returned by /pc-pubkey)
+ * @throws {Error} if the fingerprint doesn't match or isn't configured
+ */
+export async function verifyPcKeyFingerprint(b64) {
+  const pinned = (import.meta.env.VITE_PC_KEY_FINGERPRINT ?? '').replace(/:/g, '').toLowerCase();
+  if (!pinned || pinned.length !== 64) {
+    throw new Error(
+      'PC key fingerprint is not configured. Set VITE_PC_KEY_FINGERPRINT in .env and rebuild.'
+    );
+  }
+  const keyBytes = b64ToBuffer(b64);
+  const digest = await crypto.subtle.digest('SHA-256', keyBytes);
+  const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  if (hex !== pinned) {
+    throw new Error(
+      'PC public key fingerprint mismatch — possible key substitution attack.\n' +
+      `Expected: ${pinned}\nReceived: ${hex}`
+    );
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function bufToB64(buf) {
