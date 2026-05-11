@@ -108,7 +108,8 @@ const PC_KEY_FINGERPRINT = _pcFingerprintHex.length === 64
   ? Buffer.from(_pcFingerprintHex, 'hex')
   : null;
 if (!PC_KEY_FINGERPRINT && process.env.DEPLOY_MODE === 'remote') {
-  console.warn('[security] PC_PUBLIC_KEY_FINGERPRINT is not set — PC public key is unpinned. Add it to .env to prevent key-substitution attacks.');
+  console.error('[security] FATAL: PC_PUBLIC_KEY_FINGERPRINT is required in remote mode. Generate it with: cd pc-client && python keygen.py');
+  process.exit(1);
 }
 
 // ── Per-user submit rate limiter (persists across reconnects) ─────────────────
