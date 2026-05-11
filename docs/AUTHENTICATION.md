@@ -57,7 +57,7 @@ Both `/auth/register` and `/auth/login/email` share a **10 requests per 1-minute
 
 ## Per-user AI use quota
 
-Each Google account has a **uses remaining** quota:
+Each user account (Google and email/password) has a **uses remaining** quota:
 
 | Value | Meaning |
 |-------|---------|
@@ -85,9 +85,9 @@ Codes have the format `KLEIN-XXXX-XXXX` (8 characters drawn from a 32-symbol una
 `POST /auth/code` now uses two layers:
 
 - **Per-IP hard block:** 20 failed attempts from the same IP in 60 seconds → `429`
-- **Global flood circuit breaker:** 500 failed attempts across all IPs in 60 seconds → `429`
+- **Global flood circuit breaker:** 500 failed attempts across all IPs in 60 seconds → logged as a warning (soft limit for monitoring coordinated distributed guessing)
 
-This preserves normal per-IP protection while still slowing coordinated distributed guessing.
+The per-IP block is the primary defence; the global counter provides early warning of distributed attacks.
 
 ---
 

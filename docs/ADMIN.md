@@ -34,7 +34,7 @@ View all user accounts, change their status, and manage job quotas.
 
 ## Promote the first admin (CLI)
 
-After signing in with Google for the first time, promote your account from the server:
+After signing in for the first time (Google or email/password), promote your account from the server:
 
 ```bash
 cd server

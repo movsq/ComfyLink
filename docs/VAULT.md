@@ -26,8 +26,8 @@ At least the recovery method is always configured. Bio and password are optional
 |-----------|----------|-------------|
 | Setup | `POST /vault/setup` | Store all wrapped key blobs and WebAuthn credential metadata |
 | Unlock | `POST /vault/unlock` | Retrieve the wrapped master key for the chosen method |
-| Rekey | `POST /vault/rekey` | Replace wrapped key blobs (e.g. change password or register new passkey) |
-| Delete | `DELETE /vault` | Permanently delete vault and all stored results |
+| Rekey | `POST /vault/rekey` | Replace wrapped key blobs (e.g. change password or register new passkey). Requires **step-up auth** (Google ID token or email password). |
+| Delete | `DELETE /vault` | Permanently delete vault and all stored results. Requires **step-up auth**. |
 
 ---
 

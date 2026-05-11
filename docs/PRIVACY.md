@@ -46,7 +46,11 @@ Prompt content, reference images, and full vault blobs are never stored in plain
 
 ## Server-side logging
 
-The relay server logs only what is necessary for operation. Prompt content and image data are never logged. Job-level records (submission time, user ID, job status) may appear in application logs for diagnostic purposes — these are metadata, not content.
+The relay server logs only what is necessary for operation. Prompt content and image data are never logged.
+
+### Audit log
+
+Every job submission is recorded in `job_audit_log` with: job ID, user type (`google`, `email`, or `code`), user ID, email, code ID, IP address, and timestamp. No encrypted payloads or image blobs are stored. Entries are **automatically deleted after 6 months** (pruned daily). This log supports compliance obligations under the AI Act and GDPR while minimising data retention.
 
 ---
 

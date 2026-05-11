@@ -118,6 +118,13 @@ The relay is a **blind relay** — it cannot read job payloads or results.
 
 The server compares `PC_SECRET` using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
 
-### Optional worker key pinning
+### Worker key pinning (dual-layer)
 
-If `PC_PUBLIC_KEY_FINGERPRINT` is set, the server hashes the `pubkey` message sent by the pc-client and rejects the connection if the fingerprint does not match. This prevents a substituted worker key from being accepted silently.
+PC key pinning prevents a compromised relay from substituting a different worker key (MITM). Two independent layers enforce the same SHA-256 fingerprint printed by `pc-client/keygen.py`:
+
+| Layer | Variable | Enforcement |
+|-------|----------|-------------|
+| **Server-side** | `PC_PUBLIC_KEY_FINGERPRINT` | Server hashes the `pubkey` message from `/ws/pc` and rejects the connection (close 4003) if it doesn't match. **Required** when `DEPLOY_MODE=remote`; optional in local mode. Comparison uses `timingSafeEqual`. |
+| **Client-side** | `VITE_PC_KEY_FINGERPRINT` | Build-time constant baked into the Svelte client. `crypto.js` computes SHA-256 of the PC's SPKI DER public key and throws **before encrypting** if it doesn't match the pinned value. Prevents the browser from encrypting to a substituted key even if the relay accepted it. |
+
+Both variables take the same 64-character hex digest (colons are stripped automatically on both sides).

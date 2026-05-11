@@ -30,8 +30,8 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 | `POST` | `/vault/setup` | active | Initialise vault with wrapped key blobs |
 | `GET` | `/vault/info` | active | Get vault configuration and salts |
 | `POST` | `/vault/unlock` | active | Retrieve a wrapped master key blob |
-| `POST` | `/vault/rekey` | active | Replace wrapped key blobs |
-| `DELETE` | `/vault` | active | Delete vault and all stored results |
+| `POST` | `/vault/rekey` | active + step-up | Replace wrapped key blobs (requires Google ID token or email password for re-authentication) |
+| `DELETE` | `/vault` | active + step-up | Delete vault and all stored results (requires Google ID token or email password for re-authentication) |
 | `POST` | `/results` | active | Store an encrypted result (max 20 MB) with optional encrypted thumbnail |
 | `GET` | `/results` | active | List results with thumbnails (paginated) |
 | `GET` | `/results/:id` | active | Get full encrypted result |

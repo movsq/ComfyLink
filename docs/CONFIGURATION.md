@@ -33,7 +33,8 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `SKIP_TLS_VERIFY` | `false` | Skip TLS verification (use only for Tailscale / self-signed certs). |
 | `PRIVATE_KEY_PATH` | `private_key.pem` | Path to the PC's private key PEM. When launching from repo root, the setup wizard writes `pc-client/private_key.pem`. |
 | `PUBLIC_KEY_PATH` | `public_key.pem` | Path to the PC's public key PEM. When launching from repo root, the setup wizard writes `pc-client/public_key.pem`. |
-| `PC_PUBLIC_KEY_FINGERPRINT` | *(unset)* | Optional SHA-256 hex fingerprint of the PC public key. When set, the server rejects mismatched `pubkey` messages from `/ws/pc`. |
+| `PC_PUBLIC_KEY_FINGERPRINT` | *(unset)* | SHA-256 hex fingerprint of the PC public key (from `keygen.py`). **Required** when `DEPLOY_MODE=remote`; optional in local mode. When set, the server rejects mismatched `pubkey` messages from `/ws/pc`. |
+| `VITE_PC_KEY_FINGERPRINT` | *(unset)* | Same fingerprint as `PC_PUBLIC_KEY_FINGERPRINT`, exposed to the Svelte client at build time. The browser verifies the PC public key before encrypting — throws if mismatched. |
 | `RECONNECT_DELAY` | `5` | Seconds between reconnect attempts (pc-client). |
 | `CLIENT_DIST_PATH` | *(auto)* | Override path to the built Svelte frontend served by the Node.js server. |
 | `ALLOWED_ORIGINS` | *(unset)* | Comma-separated list of allowed CORS origins. **Required in production** — if unset, all origins are allowed (dev only). |

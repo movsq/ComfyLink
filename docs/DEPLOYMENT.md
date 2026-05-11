@@ -56,7 +56,7 @@ ALLOWED_ORIGINS=https://your-hostname.example.com
 EOF
 ```
 
-Recommended: set `PC_PUBLIC_KEY_FINGERPRINT` as well, using the SHA-256 value printed by `pc-client/keygen.py`, so the relay pins the worker public key in remote deployments.
+**Required:** set `PC_PUBLIC_KEY_FINGERPRINT` using the SHA-256 value printed by `pc-client/keygen.py` — the relay enforces worker key pinning in remote mode. Set `VITE_PC_KEY_FINGERPRINT` to the same value so the client also validates the key before encrypting (dual-layer pinning).
 
 ---
 
