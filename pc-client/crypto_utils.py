@@ -35,6 +35,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from config import PRIVATE_KEY_PATH, PUBLIC_KEY_PATH
+from job_validation import validate_seed, validate_steps
 
 MAX_PROMPT_LEN = 4_000  # characters; enforces the same limit as the client textarea
 
@@ -132,7 +133,7 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
             image1        (bytes | None) — first input image, or None
             image2        (bytes | None) — second input image, or None
             seed          (int)
-            steps         (int, clamped 1-8)
+            steps         (int, 1-8)
             sampler       (str)
             lora          (str | None)
             loraStrength  (float)
@@ -164,12 +165,15 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
         val = data.get(field)
         return base64.b64decode(val) if val else None
 
+    seed = validate_seed(data.get("seed", 0))
+    steps = validate_steps(data.get("steps", 4))
+
     job_params = {
         "prompt":       data["prompt"],
         "image1":       _decode_image("image1"),
         "image2":       _decode_image("image2"),
-        "seed":         max(0, min(2**53 - 1, int(data.get("seed", 0)))),
-        "steps":        max(1, min(8, int(data.get("steps", 4)))),
+        "seed":         seed,
+        "steps":        steps,
         "sampler":      data.get("sampler", "euler"),
         "lora":         data.get("lora"),
         "loraStrength": max(0.0, min(2.0, float(data.get("loraStrength", 1.0)))),

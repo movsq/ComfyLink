@@ -36,6 +36,7 @@ import aiohttp
 import websockets
 
 from config import COMFYUI_URL, GGUF_MODEL
+from job_validation import validate_seed, validate_steps
 
 log = logging.getLogger(__name__)
 
@@ -310,6 +311,8 @@ async def process_job(
     client_id = str(uuid.uuid4())
 
     # ── Validate user-supplied fields before touching workflow / ComfyUI ──────
+    seed = validate_seed(seed)
+    steps = validate_steps(steps)
     if sampler not in _ALLOWED_SAMPLERS:
         raise ValueError(f"Invalid sampler: {sampler!r}")
     _validate_model_filename(gguf_name, "gguf_name")

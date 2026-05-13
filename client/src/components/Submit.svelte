@@ -66,6 +66,10 @@
     { value: 'res_multistep', label: 'Res Multistep' },
     { value: 'heun', label: 'Heun' },
   ];
+  const MIN_STEPS = 1;
+  const MAX_STEPS = 8;
+  const MIN_SEED = 0;
+  const MAX_SEED = Number.MAX_SAFE_INTEGER;
   const loraOptions = [
     { value: 'none', label: 'None' },
     { value: 'lora1.safetensors', label: 'LoRa - N1' },
@@ -360,6 +364,14 @@
     return btoa(binary);
   }
 
+  function validateIntegerRange(value, label, min, max) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+      throw new Error(`${label} must be an integer from ${min} to ${max}.`);
+    }
+    return parsed;
+  }
+
   // ── Submit ────────────────────────────────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault();
@@ -372,6 +384,11 @@
     status = 'encrypting';
     let offQueued = null;
     try {
+      const safeSeed = validateIntegerRange(seed, 'Seed', MIN_SEED, MAX_SEED);
+      const safeSteps = validateIntegerRange(steps, 'Steps', MIN_STEPS, MAX_STEPS);
+      seed = safeSeed;
+      steps = safeSteps;
+
       const pcPubKeyB64  = await getPCPublicKey(token);
       await verifyPcKeyFingerprint(pcPubKeyB64);
       const pcPublicKey  = await importPcPublicKey(pcPubKeyB64);
@@ -379,7 +396,7 @@
       const aesKey       = await deriveAESKey(ephKeyPair.privateKey, pcPublicKey);
       const image1B64    = await fileToBase64(imageFile1);
       const image2B64    = await fileToBase64(imageFile2);
-      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed, steps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength), quantization, clipModel }));
+      const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed: safeSeed, steps: safeSteps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength), quantization, clipModel }));
       const { iv, ciphertext } = await encryptPayload(aesKey, plaintext);
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
@@ -403,8 +420,8 @@
         onJobSubmitted({ aesKey, jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
         // Advance seed for next submission
         if (seedMode === 'randomize') seed = Math.floor(Math.random() * 2 ** 32);
-        else if (seedMode === 'increment') seed = seed + 1;
-        else if (seedMode === 'decrement') seed = seed - 1;
+        else if (seedMode === 'increment') seed = Math.min(MAX_SEED, seed + 1);
+        else if (seedMode === 'decrement') seed = Math.max(MIN_SEED, seed - 1);
       });
       offError = ws.on('error', cleanup);
       offNoPc  = ws.on('no_pc', cleanup);
@@ -462,7 +479,7 @@
           <div class="param-row">
             <div class="param-field">
               <label class="field-label" for="cfg-seed">SEED</label>
-              <input id="cfg-seed" type="number" min="0" step="1" bind:value={seed} />
+              <input id="cfg-seed" type="number" min={MIN_SEED} max={MAX_SEED} step="1" bind:value={seed} />
             </div>
             <div class="param-field">
               <span class="field-label">AFTER GEN</span>
@@ -497,7 +514,7 @@
           <div class="param-row">
             <div class="param-field">
               <label class="field-label" for="cfg-steps">STEPS (1–8)</label>
-              <input id="cfg-steps" type="number" min="1" max="8" step="1" bind:value={steps} />
+              <input id="cfg-steps" type="number" min={MIN_STEPS} max={MAX_STEPS} step="1" bind:value={steps} />
             </div>
             <div class="param-field">
               <span class="field-label">SAMPLER</span>

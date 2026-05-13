@@ -17,6 +17,9 @@
     return Math.floor(Math.random() * 2 ** 32);
   }
 
+  const MIN_SEED = 0;
+  const MAX_SEED = Number.MAX_SAFE_INTEGER;
+
   // ── State ──────────────────────────────────────────────────────────────────
   // DEV bypass — Vite sets import.meta.env.DEV=true only during `npm run dev`.
   // The ternary dead-code-eliminates to the production value in every real build.
@@ -459,8 +462,8 @@
   // ── New Job: discard front result cleanly, advance seed ──────────────────────
   function handleDone() {
     if (seedMode === 'randomize') seed = randomSeed();
-    else if (seedMode === 'increment') seed = seed + 1;
-    else if (seedMode === 'decrement') seed = seed - 1;
+    else if (seedMode === 'increment') seed = Math.min(MAX_SEED, seed + 1);
+    else if (seedMode === 'decrement') seed = Math.max(MIN_SEED, seed - 1);
     if (resultStack[0]?.imageUrl) URL.revokeObjectURL(resultStack[0].imageUrl);
     resultStack = resultStack.slice(1);
     wsError = '';
