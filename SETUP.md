@@ -15,7 +15,7 @@ This guide covers everything you need to get ComfyLink running.
 | **Phone** | Any modern browser with WebAuthn/PRF support (Chrome 118+, Safari 17.4+) |
 | **Google Cloud project** | *(Optional)* OAuth 2.0 Client ID — only needed if you want Google sign-in. E-mail/password login works without it. |
 
-> **WebCrypto / Secure Context requirement.** Your browser must be served from a secure context — `https://` or `http://localhost`. A plain LAN IP such as `http://192.168.x.x` is **not** a secure context and will not work. The setup wizard enforces this: Tier 1 defaults to `http://localhost` for same-machine access and requires Tailscale for phone/remote access.
+> **WebCrypto / Secure Context requirement.** Your browser must be served from a secure context — `https://` or `http://localhost`. A plain LAN IP such as `http://192.168.x.x` is **not** a secure context and will not work. Tier 1 defaults to `http://localhost` for same-machine access and requires Tailscale for phone/remote access.
 
 ---
 
@@ -139,11 +139,7 @@ This is the zero-friction option. Tailscale acts as an ACME provider and hands C
 
 Go to [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), enable **MagicDNS**, and then enable **HTTPS Certificates** (same page). Your PC gets a stable hostname like `my-pc.tail1234.ts.net`.
 
-**2. Run `python ComfyLink-Setup/setup.py`**
-
-Choose *Tier 1*, enter your MagicDNS hostname when prompted, and answer **Yes** when asked if you have enabled HTTPS Certificates. The wizard writes your `.env` and leaves the Caddyfile as-is (no `tls internal` needed — Caddy auto-provisions the cert).
-
-**3. Start the server, install Tailscale on your phone, navigate to `https://my-pc.tail1234.ts.net`.**
+**2. Start the server, install Tailscale on your phone, navigate to `https://my-pc.tail1234.ts.net`.**
 
 ---
 
@@ -155,11 +151,7 @@ Use this only if you cannot or do not want to enable Tailscale HTTPS Certificate
 
 **1. Enable MagicDNS** (no HTTPS Certificates needed) at [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns).
 
-**2. Run `python ComfyLink-Setup/setup.py`**
-
-Enter your MagicDNS hostname and answer **No** when asked if HTTPS Certificates are enabled. The wizard uncomments `tls internal` in the Caddyfile automatically.
-
-**3. Start the server and navigate to `https://my-pc.tail1234.ts.net`.**
+**2. Start the server and navigate to `https://my-pc.tail1234.ts.net`.**
 
 You may need to accept or install the Caddy CA root certificate on each device. On desktop this is straightforward; on mobile it is device-specific and may not work at all.
 

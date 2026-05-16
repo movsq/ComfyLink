@@ -31,8 +31,8 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `GGUF_MODEL` | `flux-2-klein-9b-Q4_K_M.gguf` | Default diffusion model used when none is sent by the client. |
 | `DB_PATH` | `<repo-root>/data/comfylink.db` | Path to the SQLite database file (server). Resolved relative to `server/src` when not set; the built-in default points to `data/comfylink.db` at the repo root. |
 | `SKIP_TLS_VERIFY` | `false` | Skip TLS verification (use only for Tailscale / self-signed certs). |
-| `PRIVATE_KEY_PATH` | `private_key.pem` | Path to the PC's private key PEM. When launching from repo root, the setup wizard writes `pc-client/private_key.pem`. |
-| `PUBLIC_KEY_PATH` | `public_key.pem` | Path to the PC's public key PEM. When launching from repo root, the setup wizard writes `pc-client/public_key.pem`. |
+| `PRIVATE_KEY_PATH` | `private_key.pem` | Path to the PC's private key PEM (typically `pc-client/private_key.pem` when launching from repo root). |
+| `PUBLIC_KEY_PATH` | `public_key.pem` | Path to the PC's public key PEM (typically `pc-client/public_key.pem` when launching from repo root). |
 | `PC_PUBLIC_KEY_FINGERPRINT` | *(unset)* | SHA-256 hex fingerprint of the PC public key (from `keygen.py`). **Required** when `DEPLOY_MODE=remote`; optional in local mode. When set, the server rejects mismatched `pubkey` messages from `/ws/pc`. |
 | `VITE_PC_KEY_FINGERPRINT` | *(unset)* | Same fingerprint as `PC_PUBLIC_KEY_FINGERPRINT`, exposed to the Svelte client at build time. The browser verifies the PC public key before encrypting — throws if mismatched. |
 | `RECONNECT_DELAY` | `5` | Seconds between reconnect attempts (pc-client). |

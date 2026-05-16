@@ -47,12 +47,6 @@ Your PC connects *outbound* to the relay — no port-forwarding, no dynamic DNS,
 
 ## Get started
 
-Run the interactive setup wizard from the project root — it handles keys, config, dependencies, and launcher scripts:
-
-```bash
-python ComfyLink-Setup/setup.py
-```
-
 Pick the deployment tier that fits your use case:
 
 > **Secure context required.** WebCrypto (end-to-end encryption) only works when your browser is served from `https://` or `http://localhost`. A plain LAN IP (`http://192.168.x.x`) is not a secure context and will not work.
@@ -67,7 +61,7 @@ The server runs on your PC. Open `http://localhost:3000/` in a browser on the sa
 
 **Recommended:** enable **HTTPS Certificates** in the [Tailscale admin console](https://login.tailscale.com/admin/dns). Tailscale then acts as an ACME provider and Caddy auto-provisions a real Let's Encrypt certificate for your hostname. Phone browsers trust it natively — no security warnings, no root CA installation.
 
-**Alternative (no internet/offline Tailnet):** skip HTTPS Certificates and the setup wizard will enable `tls internal` in the Caddyfile instead. Caddy issues a self-signed cert. Desktop browsers can be configured to trust it; mobile browsers will typically warn or block.
+**Alternative (no internet/offline Tailnet):** skip HTTPS Certificates and uncomment `tls internal` in the Caddyfile manually. Caddy issues a self-signed cert. Desktop browsers can be configured to trust it; mobile browsers will typically warn or block.
 
 → [Local / Tailscale setup guide](SETUP.md)
 
