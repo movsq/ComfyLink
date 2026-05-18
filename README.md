@@ -4,9 +4,7 @@
 
 Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. Your PC connects outbound to a lightweight relay; the relay forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
-<details>
-<summary><b>Screenshots</b></summary>
-<br>
+## Screenshots
 
 <table>
   <tr>
@@ -31,8 +29,6 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
   </tr>
 </table>
 
-</details>
-
 ---
 
 ## How it works
@@ -47,29 +43,61 @@ Your PC connects *outbound* to the relay — no port-forwarding, no dynamic DNS,
 
 ## Get started
 
-Pick the deployment tier that fits your use case:
+Pick the deployment that fits how you'll use it:
 
-> **Secure context required.** WebCrypto (end-to-end encryption) only works when your browser is served from `https://` or `http://localhost`. A plain LAN IP (`http://192.168.x.x`) is not a secure context and will not work.
+| | **Tier 1 — Local** | **Tier 2 — Public VPS** |
+|---|---|---|
+| **Where the relay runs** | On your PC | On a cheap Linux VPS |
+| **Who can connect** | You + anyone on your Tailscale network | Anyone with an invite code or Google account |
+| **What you need** | A Tailscale account (free) | A VPS, a domain name, Docker |
+| **Setup time** | ~10 minutes | ~30 minutes |
+| **Guide** | [SETUP.md](SETUP.md) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
-### Tier 1 — Local / Private
+> **Heads-up — secure context.** End-to-end encryption uses WebCrypto, which browsers only allow on `https://` or `http://localhost`. A plain LAN IP like `http://192.168.x.x` won't work for phones; that's why both tiers use a real hostname (Tailscale's MagicDNS or your own domain).
 
-The server runs on your PC. Open `http://localhost:3000/` in a browser on the same machine.
+---
 
-**For phone, tablet, or remote access** — install [Tailscale](https://tailscale.com/) on your PC and on every device you want to use. Tailscale creates a private encrypted mesh network and gives your PC a stable **MagicDNS hostname** (e.g. `my-pc.tail1234.ts.net`).
+## Features
 
-> **Why not a LAN IP?** Mobile browsers require a hostname that matches a certificate — raw IPs like `192.168.x.x` can't have trusted certs and will be blocked by the browser's secure-context check. The Tailscale MagicDNS hostname is the right tool here.
+**Encryption & vault**
+- End-to-end encryption for every job (prompt, reference images, result) — ECDH-AES-GCM, fresh ephemeral keypair per job
+- Encrypted vault for saved images — your master key is wrapped with your biometric/passkey, password, or recovery phrase; the server only ever sees ciphertext
+- WebAuthn / biometric vault unlock — passkey, fingerprint, or password; no master password ever typed in plaintext
 
-**Recommended:** enable **HTTPS Certificates** in the [Tailscale admin console](https://login.tailscale.com/admin/dns). Tailscale then acts as an ACME provider and Caddy auto-provisions a real Let's Encrypt certificate for your hostname. Phone browsers trust it natively — no security warnings, no root CA installation.
+**Access & administration**
 
-**Alternative (no internet/offline Tailnet):** skip HTTPS Certificates and uncomment `tls internal` in the Caddyfile manually. Caddy issues a self-signed cert. Desktop browsers can be configured to trust it; mobile browsers will typically warn or block.
+| Sign-in method | Best for | Account features |
+|---|---|---|
+| **Google** | Trusted regular users | Quota tracking, vault, gallery, ToS flow |
+| **E-mail + password** | Same, no Google dependency | Same as Google; argon2id hashing; invite-only by default |
+| **Access code** | Sharing with non-technical friends, one-off use | Generate-only; no account, no sign-up |
 
-→ [Local / Tailscale setup guide](SETUP.md)
+- Per-user quotas, admin-configurable
+- Admin panel — manage users, issue and revoke access codes, adjust quotas
+- Invite-only registration by default (`INVITE_REQUIRED=true`)
 
-### Tier 2 — Public / Self-hosted
+**Generation**
+- Flux 2 Klein 9B GGUF workflow with selectable quantization (Q4 → Q8) and CLIP model
+- Single-reference and multi-reference image-edit modes
+- Optional LoRA adapter with configurable strength
 
-Deploy the relay to a cheap VPS with Docker and HTTPS (Caddy handles TLS automatically). Cloudflare proxy is optional and supported out of the box. Anyone with an invite code or a Google account can use it from any browser, anywhere — no VPN required.
+---
 
-→ [VPS deployment guide](SETUP.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+## Privacy
+
+| Data | Stored on relay? | Who can read it |
+|---|---|---|
+| Prompt text & reference images | No — encrypted in transit only | Only your PC decrypts |
+| Generated full image | Encrypted blob (if saved to vault) | Only you, via your master key |
+| Gallery thumbnails | Encrypted blob | Only you, via your master key |
+| User e-mail, timestamps, quota counters | Yes, plaintext | Deployer / admin |
+| ComfyUI job history | RAM only on the PC, deleted after each job | Not persisted |
+
+- **Audit log** records IP, timestamp, job ID, and user identity for every submission — never any image or prompt content. Entries auto-delete after 6 months.
+- **ComfyUI** is launched with hardening flags (`--disable-metadata`, `--database-url sqlite:///:memory:`, `--verbose CRITICAL`) to suppress prompt metadata in PNGs and avoid disk-resident history.
+- **AI Act compliance**: every generated PNG carries embedded `AI_Generated: yes` metadata.
+
+Full detail, the deployer legal position on compelled decryption, and a plaintext metadata audit → [docs/PRIVACY.md](docs/PRIVACY.md)
 
 ---
 
@@ -77,62 +105,33 @@ Deploy the relay to a cheap VPS with Docker and HTTPS (Caddy handles TLS automat
 
 | Doc | Contents |
 |-----|----------|
-| [SETUP.md](SETUP.md) | Full setup guide for all deployment modes |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
-| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale, Cloudflare proxy |
-| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol reference |
+| [SETUP.md](SETUP.md) | Quick start for local (Tier 1) deployment |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS deployment (Tier 2), GitHub Actions auto-deploy, manual deploy, Cloudflare proxy |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode |
+| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
 | [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
+| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol reference |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy chain, vault data model, deployer legal position |
 | [docs/TOS.md](docs/TOS.md) | Terms of Service and legal framework |
 | [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
 
 ---
 
-
-## Features
-
-- **End-to-end encryption** — every job (prompt, reference images, result) is encrypted on-device with ECDH-AES-GCM; the relay sees only opaque blobs
-- **Encrypted vault** — generated images are stored as encrypted blobs; the decryption key is held by you and wrapped with your biometric/passkey or password; the server has no access to your content
-- **Three distinct access paths:**
-  - **Google account** — full account with quota tracking, vault, gallery, and ToS acceptance flow; suited for trusted users who will use the tool regularly
-  - **E-mail / password** — full account (same features as Google); argon2id hashing; requires invite code by default (`INVITE_REQUIRED=true`); ToS and data-notice acceptance enforced at registration
-  - **Access code** — no account, no sign-up, no Google required; paste a code and generate; suited for sharing with less technical friends or one-off access
-- **Per-user quotas** — admin-configurable job limits per account
-- **Admin panel** — manage users, issue and revoke access codes, adjust quotas
-- **WebAuthn / biometric vault unlock** — vault unlocked with passkey, fingerprint, or password; no master password typed in plaintext
-- **Single-reference and multi-reference image generation** — Flux 2 Klein 9B GGUF workflow with model and quantization selection
-
----
-
-## Privacy
-
-- **Relay:** receives only encrypted blobs for prompts, reference images, and full results; it cannot read that content even under compulsion
-- **Vault:** encrypted blobs stored server-side; your key never leaves your device; a lawful data request produces ciphertext the server cannot decrypt
-- **Gallery previews:** saved results include a trusted 200 px WebP thumbnail generated by the PC; the relay may see it transiently during live delivery, but the browser encrypts it with the vault master key before storage — it is never kept server-side in plaintext
-- **ComfyUI:** ComfyLink configures it with hardening flags (`--disable-metadata`, `--database-url sqlite:///:memory:`, `--verbose CRITICAL`) to reduce data retention; ComfyUI is a third-party component running on the deployer's machine — we don't control its internals
-- **pc-client:** deletes each prompt from ComfyUI's in-memory history immediately after the result image is downloaded; every generated PNG receives embedded `AI_Generated: yes` metadata (ČTÚ AI Act compliance)
-- **Audit log:** each job submission records IP address, timestamp, job ID, and identity (Google sub + email for Google users; code ID for access-code users) — no image content ever enters the log; entries are automatically deleted after 6 months
-
-Full detail, the deployer legal position on compelled decryption, and a plaintext metadata audit → [docs/PRIVACY.md](docs/PRIVACY.md)
-
----
-
-## Repo Structure
+## Repo structure
 
 ```
-Flux2-9B-Klein-Remote/
+ComfyLink/
 ├── .env.example          ← copy to .env and fill in values
 ├── .github/workflows/    ← GitHub Actions: auto-deploy on push to main
-├── ComfyUI-Workflow/     ← visual workflow + model/node docs
 ├── Caddyfile             ← reverse proxy / TLS config
 ├── docker-compose.yml    ← VPS orchestration (server + Caddy)
-├── docs/                 ← extended documentation
 ├── client/               ← Svelte frontend (browser-facing)
 ├── server/               ← Node.js/Express relay + WebSocket broker
-└── pc-client/            ← Python bridge: connects relay → ComfyUI
+├── pc-client/            ← Python bridge: connects relay → ComfyUI
+├── ComfyUI-Workflow/     ← visual workflow + model/node docs
+└── docs/                 ← extended documentation
 ```
 
 ---

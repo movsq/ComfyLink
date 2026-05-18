@@ -19,8 +19,8 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `JWT_SECRET` | *(required)* | Secret for signing session JWTs. |
 | `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth 2.0 Client ID for user login. Optional when running e-mail/password-only deployments. |
 | `VITE_GOOGLE_CLIENT_ID` | *(unset)* | Same value as `GOOGLE_CLIENT_ID`; only needed when Google login is enabled. |
-| `DEPLOY_MODE` | `local` | `local` (connect to localhost) or `remote` (connect to `FLUX_KLEIN_HOST`). |
-| `FLUX_KLEIN_HOST` | — | Hostname serving the app in remote mode (for example a public domain or Tailscale MagicDNS hostname). Use a hostname, not a raw LAN IP. |
+| `DEPLOY_MODE` | `local` | Tells the pc-client where the relay lives: `local` (same machine — connects to `localhost`) or `remote` (connects to `FLUX_KLEIN_HOST` over WSS). |
+| `FLUX_KLEIN_HOST` | — | Public hostname serving the app — a domain name or Tailscale MagicDNS hostname. Used by the pc-client when `DEPLOY_MODE=remote`, and by Caddy for the TLS cert. Must be a hostname, not a raw LAN IP. |
 | `VPS_URL` | — | Direct WebSocket URL for the relay (e.g. `wss://yourdomain.com`); overrides `DEPLOY_MODE` + `FLUX_KLEIN_HOST` when set. |
 | `PORT` | `3000` | Port the Node.js relay listens on. |
 | `SESSION_TTL_MS` | `86400000` | Phone session lifetime in ms (default: 24 h). |

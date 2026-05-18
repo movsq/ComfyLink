@@ -1,7 +1,6 @@
 # ComfyUI Workflow — Flux 2 Klein 9B GGUF (Online / Image-Edit)
 
-This folder contains the **visual workflow** for the Flux2-9B-Klein-Remote
-system. `Flux2_Klein_9B_GGUF_ONLINE.json` is a standard ComfyUI graph-format
+This folder contains the **visual workflow** for ComfyLink. `Flux2_Klein_9B_GGUF_ONLINE.json` is a standard ComfyUI graph-format
 save file — you can load it into ComfyUI's UI to view, inspect, or modify the
 node graph.
 

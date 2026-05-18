@@ -2,7 +2,7 @@
 
 # ComfyLink — Setup
 
-This guide covers everything you need to get ComfyLink running.
+This is the Tier 1 (local) setup guide — you'll be running everything on your own PC and reaching it from your phone over Tailscale. For Tier 2 (public VPS deployment), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -24,8 +24,8 @@ This guide covers everything you need to get ComfyLink running.
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Flux2-9B-Klein-Remote.git
-cd Flux2-9B-Klein-Remote
+git clone https://github.com/movsq/ComfyLink.git
+cd ComfyLink
 ```
 
 ### 2. Copy and edit the config
@@ -34,34 +34,34 @@ cd Flux2-9B-Klein-Remote
 cp .env.example .env
 ```
 
-At minimum set these two values:
+Generate two random secrets — run this twice and paste each result:
 
-```env
-PC_SECRET=<long-random-string>          # PC WebSocket auth secret
-JWT_SECRET=<another-long-random-string> # Session token signing key
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Only add these if you want Google OAuth login:
+Then set them in `.env`:
 
 ```env
-GOOGLE_CLIENT_ID=<your-oauth-client-id>
-VITE_GOOGLE_CLIENT_ID=<same-value>      # Vite must expose it with VITE_ prefix
+PC_SECRET=<paste first random string here>
+JWT_SECRET=<paste second random string here>
 ```
 
-> **Google OAuth is optional.** E-mail/password login works without it. If `GOOGLE_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` are not set (or left empty), the Google sign-in section is hidden and the Google Identity Services SDK is not initialised.
-
-> **Generate random secrets:** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
->
-> Full variable reference → [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+Everything else has a working default. Full variable reference → [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ### 3. Set up Google OAuth *(optional — skip if using e-mail login only)*
+
+If you skip this step, the Google sign-in button is hidden and the Google SDK is never loaded. E-mail/password registration still works.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
 2. Create an **OAuth 2.0 Client ID** (Web application)
 3. Authorised JavaScript origins: `https://YOUR_DOMAIN` (or `http://localhost:5173` for dev)
-4. Copy the Client ID into `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` in `.env`
+4. Add the Client ID to `.env` — note the `VITE_` copy is required so the frontend can see it:
 
-> If you skip this step, the Google sign-in section does not appear and Google Identity Services is not loaded. Users can still register with e-mail and password.
+   ```env
+   GOOGLE_CLIENT_ID=<your-oauth-client-id>
+   VITE_GOOGLE_CLIENT_ID=<same-value>
+   ```
 
 ### 4. Generate the PC keypair (first time only)
 
@@ -71,9 +71,10 @@ pip install -r requirements.txt
 python keygen.py
 ```
 
-This creates `private_key.pem` and `public_key.pem` inside `pc-client/`.
-`keygen.py` can optionally encrypt the private key with a passphrase and prints a `PC_PUBLIC_KEY_FINGERPRINT=...` line you can add to `.env` for public-key pinning on the server.
-**Back up `private_key.pem`** — losing it means vault results encrypted to this key can no longer be decrypted.
+This creates `private_key.pem` and `public_key.pem` in `pc-client/`, and prints a `PC_PUBLIC_KEY_FINGERPRINT=...` line. You can optionally encrypt the private key with a passphrase when prompted.
+
+- **Copy the `PC_PUBLIC_KEY_FINGERPRINT` line into `.env`** — required for Tier 2 (VPS), optional but recommended for Tier 1. It pins the PC's identity so a compromised relay can't substitute a different worker.
+- **Back up `private_key.pem`.** Losing it means any vault results encrypted to this key are unrecoverable.
 
 ### 5. Install ComfyUI models and custom nodes
 
@@ -87,110 +88,83 @@ See [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) for required model 
 > ```
 > `--disable-metadata` stops prompt JSON being embedded in output PNGs. `--database-url sqlite:///:memory:` keeps history in RAM only (never written to `user/comfyui.db`). `--verbose CRITICAL` silences all non-fatal log output. The pc-client additionally clears each prompt from ComfyUI's in-memory history immediately after the image is downloaded.
 
-### 6. Start everything
+### 6. Start everything (4 processes)
+
+Start ComfyUI first (using the flags from Step 5), then open three more terminals for ComfyLink. This is the dev mode — Vite serves the client with hot reload.
 
 ```bash
 # Terminal 1 — relay server
 cd server && npm install && npm run dev
 
-# Terminal 2 — Svelte client
+# Terminal 2 — Svelte client (dev server)
 cd client && npm install && npm run dev
 
 # Terminal 3 — PC Python bridge
 cd pc-client && python main.py
 ```
 
-Open the URL Vite prints (e.g. `http://localhost:5173`) and sign in with Google or use the **"Login with e-mail"** button to register with an e-mail address and password.
+Open the URL Vite prints (typically `http://localhost:5173`) and sign in with Google, or click **"Login with e-mail"** to register with an e-mail address and password.
 
-> **Invite codes required by default.** `INVITE_REQUIRED=true` is the default — a `KLEIN-XXXX-XXXX` invite code is needed to register (Google & e-mail). Set `INVITE_REQUIRED=false` in `.env` to allow open registration.
+> **Invite codes are required by default.** Registration (Google or e-mail) needs a `KLEIN-XXXX-XXXX` code. You'll generate one for yourself in Step 7. To allow open registration instead, set `INVITE_REQUIRED=false` in `.env`.
 
-> **No GPU?** Use `comfyui_mock.py` — swap the import in `main.py` to get a tinted placeholder image instead.
->
-> **Env issues?** Run `python pc-client/check_env.py` to verify `PC_SECRET` is loading correctly.
+> **Troubleshooting:**
+> - **No GPU?** Edit `pc-client/main.py` to import from `comfyui_mock` instead of `comfyui` — you'll get tinted placeholder images instead of real ones, useful for UI testing.
+> - **PC bridge can't connect?** Run `python pc-client/check_env.py` to verify `PC_SECRET` matches between `.env` and what the bridge is loading.
 
 ### 7. Promote the first admin
+
+Sign in once with Google or e-mail+password (this creates the row in the database), then promote that account:
 
 ```bash
 cd server && node src/seed-admin.js your@email.com
 ```
 
-See [docs/ADMIN.md](docs/ADMIN.md) for managing users and invite codes from that point on.
+You now have an Admin tab in the UI — use it to generate invite codes for everyone else. See [docs/ADMIN.md](docs/ADMIN.md) for managing users and codes.
 
 ---
 
 ## Phone / tablet access via Tailscale  (Tier 1 — no VPS needed)
 
-Tailscale creates a private encrypted mesh network that gives every device in your network a stable **hostname** (not a raw IP). That hostname is what makes this work on phones — mobile browsers require a proper hostname with a matching certificate and will refuse or warn on raw IP addresses like `192.168.x.x`, even with `https://` and `tls internal`.
+Phones won't talk to a raw LAN IP — they need a proper hostname with a valid certificate, or the browser blocks the connection. [Tailscale](https://tailscale.com/) solves both problems at once: it creates a private encrypted mesh network and gives your PC a stable hostname (e.g. `my-pc.tail1234.ts.net`) that you can also get a real HTTPS cert for.
 
-> **Why not a LAN IP?** A plain LAN IP is a dead end for phone browsers. Even with TLS it triggers an untrusted-certificate wall that most mobile users cannot get past. The Tailscale MagicDNS hostname bypasses that entirely.
+You'll need:
 
-### Prerequisites
+- A free [Tailscale account](https://tailscale.com/)
+- Tailscale installed on your PC **and** on every device you want to use ComfyLink from
 
-- [Tailscale account](https://tailscale.com/) (free tier supports personal use)
-- Tailscale installed on this PC
+### The 4 steps
 
----
+**1. Enable MagicDNS + HTTPS Certificates** in the [Tailscale admin console](https://login.tailscale.com/admin/dns). Both toggles are on the same page. Your PC gets a stable hostname (`my-pc.tail1234.ts.net`) and Tailscale acts as an ACME provider so Caddy can auto-provision a real Let's Encrypt cert.
 
-### Recommended path — Tailscale HTTPS Certificates (real Let's Encrypt cert)
+**2. Install Tailscale on your phone** — [iOS](https://apps.apple.com/app/tailscale/id1470499037) or [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn.android). Sign in with the same account and connect.
 
-This is the zero-friction option. Tailscale acts as an ACME provider and hands Caddy a genuine Let's Encrypt certificate for your MagicDNS hostname. Phone browsers trust it natively; no root CA installation, no security warnings.
+**3. Start the server on your PC** (see Quick Start step 6 above).
 
-**1. Enable MagicDNS and HTTPS Certificates in the Tailscale admin console**
+**4. Open `https://my-pc.tail1234.ts.net` on your phone.** Done.
 
-Go to [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns), enable **MagicDNS**, and then enable **HTTPS Certificates** (same page). Your PC gets a stable hostname like `my-pc.tail1234.ts.net`.
+> **Tailscale must stay connected on your phone** — if you turn it off, the site becomes unreachable until you reconnect.
 
-**2. Start the server, install Tailscale on your phone, navigate to `https://my-pc.tail1234.ts.net`.**
+### What if I can't enable HTTPS Certificates? (offline Tailnet, etc.)
 
----
-
-### Alternative path — `tls internal` (Caddy self-signed cert)
-
-Use this only if you cannot or do not want to enable Tailscale HTTPS Certificates (e.g. you are on a private Tailnet without internet access).
-
-> **Warning:** `tls internal` uses Caddy's built-in private CA. Desktop browsers can be told to trust it; most mobile browsers will show a certificate warning and may block the connection. For best phone compatibility, the recommended path above is strongly preferred.
-
-**1. Enable MagicDNS** (no HTTPS Certificates needed) at [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns).
-
-**2. Start the server and navigate to `https://my-pc.tail1234.ts.net`.**
-
-You may need to accept or install the Caddy CA root certificate on each device. On desktop this is straightforward; on mobile it is device-specific and may not work at all.
-
----
-
-### Manual Caddyfile reference
+Uncomment `tls internal` in `Caddyfile` to fall back on Caddy's self-signed certificate:
 
 ```
 {my-pc.tail1234.ts.net} {
-    # Tailscale HTTPS Certs ON  → leave this line commented (Caddy auto-provisions)
-    # Tailscale HTTPS Certs OFF → uncomment this line for self-signed cert:
+    # Uncomment only when Tailscale HTTPS Certs are NOT enabled:
     # tls internal
     ...
 }
 ```
 
----
-
-**4. Install Tailscale on your phone**
-
-Download Tailscale for [iOS](https://apps.apple.com/app/tailscale/id1470499037) or [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn.android), sign in with the same account, and connect.
-
-**5. Open ComfyLink on your phone**
-
-Navigate to `https://my-pc.tail1234.ts.net` in your phone's browser. The connection is private to your Tailscale network — no one else can reach it.
-
-> **Must be on Tailscale.** Your phone must have the Tailscale app open and connected to reach this URL. If you close Tailscale on your phone, the site becomes unreachable from that device until you reconnect.
+Desktop browsers can be told to trust the self-signed cert. **Most mobile browsers will warn or block it** — for phone access, enabling Tailscale HTTPS Certificates is strongly recommended.
 
 ---
 
-## Documentation
+## Where to go next
 
-| Doc | Contents |
-|-----|----------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflow pipeline, job queue mechanics, encryption schemes, wire formats |
-| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Account lifecycle, per-user quotas, invite codes, guest mode, Terms of Service |
-| [docs/VAULT.md](docs/VAULT.md) | Master key wrapping (bio/password/recovery), vault operations, result storage |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS setup, GitHub Actions auto-deploy, manual deploy, Tailscale, Cloudflare proxy |
-| [docs/API.md](docs/API.md) | Full REST API and WebSocket protocol message reference |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables with defaults and descriptions |
-| [docs/ADMIN.md](docs/ADMIN.md) | Admin panel tabs (Codes, Users), first-admin CLI |
-| [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) | Required models, custom nodes, full node map |
+- Want to expose it publicly instead of via Tailscale? → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Tier 2)
+- Need to manage users or generate more invite codes? → [docs/ADMIN.md](docs/ADMIN.md)
+- Curious how the encryption works? → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Looking for every config option? → [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+
+Full doc index is on the [README](README.md#documentation).
