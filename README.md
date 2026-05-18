@@ -59,27 +59,15 @@ Pick the deployment that fits how you'll use it:
 
 ## Features
 
-**Encryption & vault**
-- End-to-end encryption for every job (prompt, reference images, result) — ECDH-AES-GCM, fresh ephemeral keypair per job
-- Encrypted vault for saved images — your master key is wrapped with your biometric/passkey, password, or recovery phrase; the server only ever sees ciphertext
-- WebAuthn / biometric vault unlock — passkey, fingerprint, or password; no master password ever typed in plaintext
+**Encryption.** Every job — prompt, reference images, result — is encrypted on your device with ECDH-AES-GCM and a fresh ephemeral keypair, so the relay only ever holds opaque blobs. Vault images use a master key wrapped by your passkey, password, or recovery phrase; nothing the server stores is decryptable without a key it doesn't have.
 
-**Access & administration**
+**Sign-in.** Three ways in:
+- **Google** or **e-mail + password** (argon2id) — full accounts with quota tracking, vault, and gallery. Invite-only by default (`INVITE_REQUIRED=true`).
+- **Access code** — paste a `KLEIN-XXXX-XXXX` code and generate. No sign-up, no account. Useful for sharing with non-technical friends.
 
-| Sign-in method | Best for | Account features |
-|---|---|---|
-| **Google** | Trusted regular users | Quota tracking, vault, gallery, ToS flow |
-| **E-mail + password** | Same, no Google dependency | Same as Google; argon2id hashing; invite-only by default |
-| **Access code** | Sharing with non-technical friends, one-off use | Generate-only; no account, no sign-up |
+**Generation.** Flux 2 Klein 9B GGUF with selectable quantization (Q4–Q8) and CLIP model, single- and multi-reference image-edit modes, and optional LoRA with adjustable strength.
 
-- Per-user quotas, admin-configurable
-- Admin panel — manage users, issue and revoke access codes, adjust quotas
-- Invite-only registration by default (`INVITE_REQUIRED=true`)
-
-**Generation**
-- Flux 2 Klein 9B GGUF workflow with selectable quantization (Q4 → Q8) and CLIP model
-- Single-reference and multi-reference image-edit modes
-- Optional LoRA adapter with configurable strength
+**Administration.** Admin panel for managing users, issuing and revoking access codes, and adjusting per-user quotas. First admin is promoted via CLI.
 
 ---
 
