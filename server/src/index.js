@@ -1386,10 +1386,12 @@ function handlePcMessage(raw) {
 
   if (msg.type === 'progress') {
     // Validate numeric fields before forwarding — a compromised PC could push
-    // NaN, Infinity, or strings that would corrupt client state.
+    // NaN, Infinity, or strings that would corrupt client state. max must be
+    // strictly positive (clients divide by it) and value must not exceed it.
     const value = Number(msg.value);
     const max   = Number(msg.max);
-    if (!Number.isFinite(value) || !Number.isFinite(max) || value < 0 || max < 0) return;
+    if (!Number.isFinite(value) || !Number.isFinite(max)) return;
+    if (max <= 0 || value < 0 || value > max) return;
     if (typeof msg.jobId !== 'string' || !msg.jobId) return;
     const job = getJob(msg.jobId);
     if (!job || job.status !== 'processing') return;
