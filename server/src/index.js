@@ -1335,7 +1335,13 @@ async function handlePcSocket(ws) {
     ws.on('message', handlePcMessage);
     ws.on('close', (code, reason) => {
       console.log(`[pc] Disconnected (code=${code} reason=${reason?.toString() ?? ''}).`);
-      if (pcSocket === ws) pcSocket = null;
+      // Only clear the cached pubkey if THIS socket is still the active PC.
+      // A late close event from a replaced socket must not blow away the new
+      // PC's cached key.
+      if (pcSocket === ws) {
+        pcSocket = null;
+        pcPublicKeyB64 = null;
+      }
     });
 
     // Dispatch any pending jobs now that PC is connected

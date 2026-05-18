@@ -42,3 +42,9 @@ sftp.json
 .ftpconfig
 .ftpquota
 .lftp/
+
+# ── Claude Code workspace (local-only, never push) ────────────────────────────
+CLAUDE.md
+.claude/
+.claude_trash/
+.claude*
