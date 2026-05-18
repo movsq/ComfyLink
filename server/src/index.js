@@ -519,35 +519,55 @@ app.delete('/codes/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-/** PATCH /codes/:id — edit uses_remaining and/or expires_at of an existing code */
+/** PATCH /codes/:id — edit uses_remaining and/or expires_at of an existing code.
+ *  Fields absent from the body are left unchanged; explicit `null` clears them
+ *  (unlimited uses / no expiration). */
 app.patch('/codes/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
-  const { usesRemaining, expiresInHours } = req.body ?? {};
-
-  let usesNormalized = null;
-  let expiresInHoursNormalized = null;
-
-  if (usesRemaining !== undefined && usesRemaining !== null) {
-    const n = parseInt(usesRemaining, 10);
-    if (isNaN(n) || n < 0) return res.status(400).json({ error: 'usesRemaining must be a non-negative integer or null' });
-    usesNormalized = n;
-  }
-  if (expiresInHours !== undefined && expiresInHours !== null) {
-    const n = parseFloat(expiresInHours);
-    if (isNaN(n) || n <= 0 || n > 87_600) return res.status(400).json({ error: 'expiresInHours must be a positive number and at most 87600' });
-    expiresInHoursNormalized = n;
+  const body = req.body ?? {};
+  const usesProvided = Object.prototype.hasOwnProperty.call(body, 'usesRemaining');
+  const expiresProvided = Object.prototype.hasOwnProperty.call(body, 'expiresInHours');
+  if (!usesProvided && !expiresProvided) {
+    return res.status(400).json({ error: 'Nothing to update' });
   }
 
-  const expiresAt = expiresInHoursNormalized !== null ? Date.now() + expiresInHoursNormalized * 3600_000 : null;
-  const uses = usesNormalized !== null ? usesNormalized : null;
+  const existing = findInviteCodeById(id);
+  if (!existing || existing.created_by !== req.user.userId) {
+    return res.status(404).json({ error: 'Not found' });
+  }
 
-  const result = updateInviteCode(id, req.user.userId, { usesRemaining: uses, expiresAt });
+  // Defaults preserve existing values; only override what the caller provided.
+  let nextUses = existing.uses_remaining;
+  let nextExpiresAt = existing.expires_at;
+
+  if (usesProvided) {
+    const raw = body.usesRemaining;
+    if (raw === null) {
+      nextUses = null;
+    } else {
+      const n = parseInt(raw, 10);
+      if (isNaN(n) || n < 0) return res.status(400).json({ error: 'usesRemaining must be a non-negative integer or null' });
+      nextUses = n;
+    }
+  }
+  if (expiresProvided) {
+    const raw = body.expiresInHours;
+    if (raw === null) {
+      nextExpiresAt = null;
+    } else {
+      const n = parseFloat(raw);
+      if (isNaN(n) || n <= 0 || n > 87_600) return res.status(400).json({ error: 'expiresInHours must be a positive number and at most 87600' });
+      nextExpiresAt = Date.now() + n * 3600_000;
+    }
+  }
+
+  const result = updateInviteCode(id, req.user.userId, { usesRemaining: nextUses, expiresAt: nextExpiresAt });
   if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
   notifyAdmins('codes_changed');
-  // Push updated status to any connected code-users for this code
-  notifyCodeUsers(id, uses);
+  // Push the authoritative uses count to any connected code-users for this code.
+  notifyCodeUsers(id, nextUses);
   res.json({ ok: true });
 });
 
