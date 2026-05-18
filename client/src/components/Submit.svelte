@@ -406,6 +406,12 @@
       const capturedPreview1 = imagePreviewUrl1;
       const capturedPreview2 = imagePreviewUrl2;
 
+      // A per-submit token disambiguates the `queued` ack when multiple submits
+      // are in flight on the same socket. Without it, both submissions' one-shot
+      // listeners fire on the first `queued` event and bind the wrong AES key
+      // to the jobId, breaking result decryption.
+      const clientToken = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+
       // Listen for the queued response to capture jobId.
       // Also register sibling listeners for error/no_pc so the one-shot offQueued
       // handler is always cleaned up, even when the server rejects the submit.
@@ -415,9 +421,13 @@
         if (offError)  { offError();  offError  = null; }
         if (offNoPc)   { offNoPc();   offNoPc   = null; }
       }
-      offQueued = ws.on('queued', ({ jobId }) => {
+      offQueued = ws.on('queued', (msg) => {
+        // Only act on the ack for THIS submit. Older servers that don't echo
+        // clientToken still work for the single-in-flight case because the
+        // listener is unregistered immediately on first match.
+        if (msg.clientToken && msg.clientToken !== clientToken) return;
         cleanup();
-        onJobSubmitted({ aesKey, jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
+        onJobSubmitted({ aesKey, jobId: msg.jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
         // Advance seed for next submission
         if (seedMode === 'randomize') seed = Math.floor(Math.random() * 2 ** 32);
         else if (seedMode === 'increment') seed = Math.min(MAX_SEED, seed + 1);
@@ -426,7 +436,7 @@
       offError = ws.on('error', cleanup);
       offNoPc  = ws.on('no_pc', cleanup);
 
-      const sent = ws.send({ type: 'submit', payload });
+      const sent = ws.send({ type: 'submit', payload, clientToken });
       if (!sent) {
         cleanup();
         throw new Error('WebSocket is not connected');

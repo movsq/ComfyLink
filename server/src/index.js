@@ -1839,7 +1839,15 @@ function handleJobSubmit(phoneWs, msg, jwtPayload, queueUserId, wsSessionId, cli
     console.error('[audit] Failed to write job audit log:', err.message);
   }
 
-  sendJson(phoneWs, { type: 'queued', jobId });
+  // Echo back the client-supplied clientToken (if any) so multiple in-flight
+  // submits on the same socket can be matched to their own `queued` ack.
+  // Without this, a one-shot 'queued' listener registered for submit B would
+  // fire on the 'queued' for submit A and bind B's AES key to A's jobId.
+  const ack = { type: 'queued', jobId };
+  if (typeof msg.clientToken === 'string' && msg.clientToken.length > 0 && msg.clientToken.length <= 64) {
+    ack.clientToken = msg.clientToken;
+  }
+  sendJson(phoneWs, ack);
   console.log(`[queue] Job ${jobId} added to queue.`);
 
   // Try to dispatch immediately if nothing is processing
