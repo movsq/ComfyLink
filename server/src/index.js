@@ -1218,11 +1218,17 @@ const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 setInterval(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
 
 function getUpgradeIp(req) {
-  // When behind a reverse proxy, trust the first X-Forwarded-For hop.
-  // Otherwise use the raw socket address (matches trust proxy conditional below).
+  // When behind a reverse proxy, take the right-most X-Forwarded-For hop
+  // (the one inserted by the trusted proxy itself). The leftmost entry is
+  // attacker-controlled — any client can set `X-Forwarded-For: 1.2.3.4` and
+  // Caddy will append the real client IP, so [0] is the spoofed value.
+  // This mirrors Express's `trust proxy = 1` behaviour used for HTTP routes.
   if (process.env.BEHIND_PROXY === 'true') {
     const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) return forwarded.split(',')[0].trim();
+    if (forwarded) {
+      const hops = forwarded.split(',').map((s) => s.trim()).filter(Boolean);
+      if (hops.length > 0) return hops[hops.length - 1];
+    }
   }
   return req.socket.remoteAddress;
 }
