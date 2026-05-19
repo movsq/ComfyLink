@@ -17,6 +17,9 @@ The public key is also printed as base64 so you can copy-paste it if needed.
 import base64
 import getpass
 import hashlib
+import os
+import stat
+import sys
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ec import (
     generate_private_key,
@@ -59,7 +62,21 @@ def main() -> None:
             encryption_algorithm=encryption_algorithm,
         )
     )
+    # Best-effort: restrict POSIX perms to owner-only (0600). On Windows the
+    # call only toggles the read-only bit and ACLs are unaffected — operators
+    # there need to lock down the file via Properties → Security manually.
+    try:
+        os.chmod(priv_path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError as exc:
+        print(f"[keygen] WARNING: could not chmod private key: {exc}", file=sys.stderr)
     print(f"[keygen] Private key saved to: {PRIVATE_KEY_PATH}")
+    if passphrase is None:
+        print(
+            "[keygen] WARNING: private key was saved UNENCRYPTED. Anyone with "
+            "read access to this machine can impersonate the PC against the relay.\n"
+            "[keygen] Re-run with a passphrase, or ensure the file is only readable "
+            "by your user account."
+        )
 
     # Save public key (PEM, SPKI format — matches WebCrypto's spki import format)
     pub_pem = public_key.public_bytes(
