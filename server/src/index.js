@@ -285,7 +285,11 @@ if (!allowedOrigins && process.env.DEPLOY_MODE === 'remote') {
 }
 app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(express.json({ limit: '20mb' }));
+// 30 MB covers a 20 MB binary encrypted image (≈ 27 MB base64) plus the
+// thumbnail blob and JSON overhead written to POST /results. Other endpoints
+// post far smaller bodies, so the headroom is harmless. The per-route check
+// inside /results still enforces the 20 MB binary cap.
+app.use(express.json({ limit: '30mb' }));
 
 // Rate limiting
 // Auth endpoints: 30 req/min per IP — generous enough for normal interactive login
@@ -704,7 +708,7 @@ app.delete('/vault', requireActive, async (req, res) => {
 // ── Stored results ────────────────────────────────────────────────────────────
 
 /** POST /results — store encrypted full blob + optional encrypted thumbnail */
-app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) => {
+app.post('/results', requireActive, (req, res) => {
   const { encryptedFull, ivFull, fullSizeBytes, jobId, encryptedThumb, ivThumb } = req.body ?? {};
 
   if (!encryptedFull || !ivFull) {
