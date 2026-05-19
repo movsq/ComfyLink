@@ -243,6 +243,25 @@ function sendJson(ws, obj) {
   }
 }
 
+/**
+ * Send and wait for the underlying socket to actually flush the bytes. The ws
+ * library invokes the callback with an err once the OS accepts the data (or
+ * when the connection drops before it can be sent), which is a much better
+ * "delivered to the wire" signal than sendJson()'s "send() did not throw".
+ * Use this for messages whose loss is unacceptable, e.g. the encrypted result.
+ */
+function sendJsonAck(ws, obj, onFlushed) {
+  if (!ws || ws.readyState !== 1) {
+    onFlushed(false);
+    return;
+  }
+  try {
+    ws.send(JSON.stringify(obj), (err) => onFlushed(!err));
+  } catch {
+    onFlushed(false);
+  }
+}
+
 function getSessionInvalidReason(jwtPayload, rawToken) {
   const verified = verifyJwt(rawToken);
   if (!verified) return 'token_expired';
@@ -1493,13 +1512,14 @@ function handlePcMessage(raw) {
     completeJob(msg.jobId, msg.payload, relayedThumbnail);
     const relayMsg = { type: 'result', jobId: msg.jobId, payload: msg.payload };
     if (relayedThumbnail !== undefined) relayMsg.thumbnail = relayedThumbnail;
-    const deliveredLive = sendJson(job.phoneWs, relayMsg);
+    // Wait for the socket to actually accept the bytes before deleting the
+    // job. If the connection drops before the buffered send flushes, leave
+    // the job in 'done' state so the replay-on-reconnect path can resend.
+    const jobIdForDelete = msg.jobId;
+    sendJsonAck(job.phoneWs, relayMsg, (delivered) => {
+      if (delivered) deleteJob(jobIdForDelete);
+    });
     console.log(`[pc] Job ${msg.jobId} completed.`);
-    // If nobody is currently connected for this owner, keep the completed job
-    // in memory and replay it on next reconnect.
-    if (deliveredLive) {
-      deleteJob(msg.jobId);
-    }
     // Dispatch next
     dispatchNextJob();
     broadcastQueueUpdate();
