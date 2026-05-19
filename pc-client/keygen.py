@@ -1,5 +1,8 @@
 """
-keygen.py — One-time script to generate the PC's static X25519 keypair.
+keygen.py — One-time script to generate the PC's static P-256 (SECP256R1) keypair.
+
+P-256 was chosen to match the browser-side WebCrypto ECDH curve used during
+the per-job handshake; both halves must agree on the curve.
 
 Run once:
     python keygen.py
