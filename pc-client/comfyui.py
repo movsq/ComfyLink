@@ -119,16 +119,15 @@ def _inject_ai_metadata(image_bytes: bytes) -> bytes:
     return result
 
 
-async def _clear_history(prompt_id: str) -> None:
-    """Delete a single prompt from ComfyUI's in-memory history."""
+async def _clear_history(session: aiohttp.ClientSession, prompt_id: str) -> None:
+    """Delete a single prompt from ComfyUI's in-memory history. Best-effort."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{COMFYUI_URL}/history",
-                json={"delete": [prompt_id]},
-            ) as resp:
-                if resp.status != 200:
-                    log.debug(f"[comfyui] History delete returned HTTP {resp.status}")
+        async with session.post(
+            f"{COMFYUI_URL}/history",
+            json={"delete": [prompt_id]},
+        ) as resp:
+            if resp.status != 200:
+                log.debug(f"[comfyui] History delete returned HTTP {resp.status}")
     except Exception as exc:
         log.debug(f"[comfyui] Could not clear history for {prompt_id}: {exc}")
 
@@ -380,91 +379,106 @@ async def process_job(
 
         log.info(f"[comfyui] Queued as prompt_id={prompt_id}")
 
-        # ── Step 2: WebSocket — wait for execution to finish ───────────────────
-        async with websockets.connect(ws_url) as ws_conn:
-            while True:
-                try:
-                    raw = await asyncio.wait_for(
-                        ws_conn.recv(), timeout=_COMFYUI_WS_TIMEOUT
-                    )
-                except asyncio.TimeoutError:
-                    raise RuntimeError(
-                        f"ComfyUI WebSocket timed out after {_COMFYUI_WS_TIMEOUT}s "
-                        "with no progress — job considered failed."
-                    )
-                if isinstance(raw, bytes):
-                    continue  # binary preview frames — ignore
-                msg = json.loads(raw)
-                mtype = msg.get("type")
-                if mtype == "progress":
-                    d = msg.get("data", {})
-                    # Only forward progress for THIS prompt. ComfyUI's WS can
-                    # emit messages for other concurrent clients on the same
-                    # server; without this filter the phone's progress bar
-                    # would jump around when a sibling job is also running.
-                    if d.get("prompt_id") not in (None, prompt_id):
-                        continue
-                    if progress_callback:
-                        try:
-                            await progress_callback(
-                                d.get("value", 0),
-                                d.get("max", 1),
-                                d.get("node"),
-                            )
-                        except Exception:
-                            pass  # never let progress reporting crash the job
-                elif mtype == "executing":
-                    d = msg.get("data", {})
-                    if d.get("prompt_id") == prompt_id and d.get("node") is None:
-                        log.info("[comfyui] Execution complete.")
-                        break
-                elif mtype == "execution_error":
-                    d = msg.get("data", {})
-                    if d.get("prompt_id") == prompt_id:
-                        node_id   = d.get("node_id", "?")
-                        node_type = d.get("node_type", "?")
-                        exc_msg   = d.get("exception_message", "unknown error")
-                        tb_lines  = d.get("traceback", [])
-                        tb_str    = "".join(tb_lines).strip() if tb_lines else ""
-                        detail    = (
-                            f"node {node_id} ({node_type}): {exc_msg}"
-                            + (f"\n{tb_str}" if tb_str else "")
-                        )
-                        raise RuntimeError(f"ComfyUI execution error: {detail}")
-
-        # ── Step 3: GET /history → find output image filename ──────────────────
-        async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
-            history = await resp.json()
-
-        outputs = history.get(prompt_id, {}).get("outputs", {})
-        node_out = outputs.get("117")
-        if not node_out or not node_out.get("images"):
-            raise RuntimeError(
-                "ComfyUI returned no images in history for output node 117"
+        try:
+            image_bytes = await _process_after_queue(
+                session, ws_url, prompt_id, progress_callback,
             )
-
-        img_info = node_out["images"][0]
-        filename = img_info["filename"]
-        subfolder = img_info.get("subfolder", "")
-        img_type = img_info.get("type", "temp")
-
-        log.info(f"[comfyui] Output: {filename} (type={img_type})")
-
-        # ── Step 4: GET /view → download image bytes ───────────────────────────
-        params = {"filename": filename, "subfolder": subfolder, "type": img_type}
-        async with session.get(f"{COMFYUI_URL}/view", params=params) as resp:
-            if resp.status != 200:
-                raise RuntimeError(
-                    f"ComfyUI /view returned HTTP {resp.status} for {filename}"
-                )
-            image_bytes = await resp.read()
-
-    log.info(f"[comfyui] Downloaded {len(image_bytes):,} bytes.")
-
-        # ── Step 5: DELETE prompt from in-memory history ───────────────────────
-    await _clear_history(prompt_id)
+        finally:
+            # Always clear server-side history, even if the job raised — otherwise
+            # ComfyUI's in-memory history slowly fills with failed prompts.
+            await _clear_history(session, prompt_id)
 
     # ── Step 6: Inject AI-generation metadata (ČTÚ compliance) ───────────────
     image_bytes = _inject_ai_metadata(image_bytes)
 
+    return image_bytes
+
+
+async def _process_after_queue(
+    session: aiohttp.ClientSession,
+    ws_url: str,
+    prompt_id: str,
+    progress_callback,
+) -> bytes:
+    """Steps 2–4: monitor execution via WS, then GET /history and /view."""
+    # ── Step 2: WebSocket — wait for execution to finish ───────────────────
+    async with websockets.connect(ws_url) as ws_conn:
+        while True:
+            try:
+                raw = await asyncio.wait_for(
+                    ws_conn.recv(), timeout=_COMFYUI_WS_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    f"ComfyUI WebSocket timed out after {_COMFYUI_WS_TIMEOUT}s "
+                    "with no progress — job considered failed."
+                )
+            if isinstance(raw, bytes):
+                continue  # binary preview frames — ignore
+            msg = json.loads(raw)
+            mtype = msg.get("type")
+            if mtype == "progress":
+                d = msg.get("data", {})
+                # Only forward progress for THIS prompt. ComfyUI's WS can
+                # emit messages for other concurrent clients on the same
+                # server; without this filter the phone's progress bar
+                # would jump around when a sibling job is also running.
+                if d.get("prompt_id") not in (None, prompt_id):
+                    continue
+                if progress_callback:
+                    try:
+                        await progress_callback(
+                            d.get("value", 0),
+                            d.get("max", 1),
+                            d.get("node"),
+                        )
+                    except Exception:
+                        pass  # never let progress reporting crash the job
+            elif mtype == "executing":
+                d = msg.get("data", {})
+                if d.get("prompt_id") == prompt_id and d.get("node") is None:
+                    log.info("[comfyui] Execution complete.")
+                    break
+            elif mtype == "execution_error":
+                d = msg.get("data", {})
+                if d.get("prompt_id") == prompt_id:
+                    node_id   = d.get("node_id", "?")
+                    node_type = d.get("node_type", "?")
+                    exc_msg   = d.get("exception_message", "unknown error")
+                    tb_lines  = d.get("traceback", [])
+                    tb_str    = "".join(tb_lines).strip() if tb_lines else ""
+                    detail    = (
+                        f"node {node_id} ({node_type}): {exc_msg}"
+                        + (f"\n{tb_str}" if tb_str else "")
+                    )
+                    raise RuntimeError(f"ComfyUI execution error: {detail}")
+
+    # ── Step 3: GET /history → find output image filename ──────────────────
+    async with session.get(f"{COMFYUI_URL}/history/{prompt_id}") as resp:
+        history = await resp.json()
+
+    outputs = history.get(prompt_id, {}).get("outputs", {})
+    node_out = outputs.get("117")
+    if not node_out or not node_out.get("images"):
+        raise RuntimeError(
+            "ComfyUI returned no images in history for output node 117"
+        )
+
+    img_info = node_out["images"][0]
+    filename = img_info["filename"]
+    subfolder = img_info.get("subfolder", "")
+    img_type = img_info.get("type", "temp")
+
+    log.info(f"[comfyui] Output: {filename} (type={img_type})")
+
+    # ── Step 4: GET /view → download image bytes ───────────────────────────
+    params = {"filename": filename, "subfolder": subfolder, "type": img_type}
+    async with session.get(f"{COMFYUI_URL}/view", params=params) as resp:
+        if resp.status != 200:
+            raise RuntimeError(
+                f"ComfyUI /view returned HTTP {resp.status} for {filename}"
+            )
+        image_bytes = await resp.read()
+
+    log.info(f"[comfyui] Downloaded {len(image_bytes):,} bytes.")
     return image_bytes
