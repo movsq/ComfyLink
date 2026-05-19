@@ -115,9 +115,22 @@ def decode_job_payload(b64_payload: str) -> tuple[bytes, bytes, bytes]:
 
     Returns:
         (eph_pub_key_der, iv, ciphertext)
+
+    Raises ValueError on malformed payloads (header too short, length field
+    larger than the remaining buffer, no room for IV + ciphertext).
     """
     raw = base64.b64decode(b64_payload)
+    # 2-byte length + at least 1 byte of key + 12 bytes IV + at least 16 bytes
+    # for the AES-GCM tag (no plaintext) is the absolute minimum.
+    if len(raw) < 2 + 1 + 12 + 16:
+        raise ValueError("Job payload too short")
     key_len = struct.unpack(">H", raw[:2])[0]           # big-endian uint16
+    # SPKI for a P-256 public key is 91 bytes; cap at 256 to leave slack for
+    # any future curve while still rejecting obvious garbage.
+    if key_len == 0 or key_len > 256:
+        raise ValueError(f"Invalid ephemeral key length: {key_len}")
+    if 2 + key_len + 12 + 16 > len(raw):
+        raise ValueError("Job payload truncated")
     eph_pub_der = raw[2 : 2 + key_len]
     iv = raw[2 + key_len : 2 + key_len + 12]
     ciphertext = raw[2 + key_len + 12 :]
