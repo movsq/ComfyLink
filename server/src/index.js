@@ -1189,10 +1189,24 @@ const server = createServer(app);
 // ── WebSocket servers (noServer mode, we route upgrades manually) ─────────────
 const wss = new WebSocketServer({ noServer: true, maxPayload: 100 * 1024 * 1024 });
 
+// ── Background timers ─────────────────────────────────────────────────────────
+// All long-lived setInterval handles are collected here so server.on('close')
+// can clear them; otherwise the Node event loop never quiesces on shutdown.
+const backgroundTimers = [];
+function schedule(fn, intervalMs) {
+  const t = setInterval(fn, intervalMs);
+  backgroundTimers.push(t);
+  return t;
+}
+server.on('close', () => {
+  for (const t of backgroundTimers) clearInterval(t);
+  backgroundTimers.length = 0;
+});
+
 // ── Heartbeat — keeps idle connections alive through NAT/firewall/proxy timeouts ─
 // 25 s is conservative enough to beat typical 30 s NAT idle timeouts.
 const PING_INTERVAL_MS = 25_000;
-const heartbeatTimer = setInterval(() => {
+schedule(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
       ws.terminate();
@@ -1202,7 +1216,6 @@ const heartbeatTimer = setInterval(() => {
     ws.ping();
   });
 }, PING_INTERVAL_MS);
-server.on('close', () => clearInterval(heartbeatTimer));
 
 // ── WS upgrade rate limiter ────────────────────────────────────────────────
 // Tracks connection attempts per IP to prevent unauthenticated connection
@@ -1212,22 +1225,34 @@ const WS_RATE_MAX = 20; // max upgrade attempts per IP per window
 const wsUpgradeTracker = new Map(); // Map<ip, { count, resetAt }>
 
 // Prune stale entries from the WS upgrade tracker every 5 minutes
-setInterval(() => {
+schedule(() => {
   const now = Date.now();
   for (const [ip, entry] of wsUpgradeTracker) {
     if (now >= entry.resetAt) wsUpgradeTracker.delete(ip);
   }
 }, 5 * 60_000);
 
+// Prune the per-user submit rate-limiter map. The Map is keyed by queueUserId
+// and was never cleared once seeded, so long-running processes accumulated one
+// entry per unique user/code ever seen. Drop expired timestamps every minute
+// and remove the entry entirely if no recent submits remain.
+schedule(() => {
+  const cutoff = Date.now() - WS_SUBMIT_WINDOW_MS;
+  for (const [userId, timestamps] of submitRateLimiter) {
+    while (timestamps.length && timestamps[0] <= cutoff) timestamps.shift();
+    if (timestamps.length === 0) submitRateLimiter.delete(userId);
+  }
+}, 60_000);
+
 // Prune code_auth_failures older than 5 minutes every 5 minutes
-setInterval(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
+schedule(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
 
 // Prune email_login_failures older than 15 minutes every 5 minutes
-setInterval(() => pruneEmailLoginFailures(15 * 60_000), 5 * 60_000);
+schedule(() => pruneEmailLoginFailures(15 * 60_000), 5 * 60_000);
 
 // Prune job audit log entries older than 6 months once per day
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
-setInterval(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
+schedule(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
 
 function getUpgradeIp(req) {
   // When behind a reverse proxy, take the right-most X-Forwarded-For hop
@@ -1925,11 +1950,11 @@ function handleAdminSocket(ws, userId) {
 initAuth();
 
 // Prune stale jobs every 10 minutes
-setInterval(() => pruneOldJobs(30 * 60 * 1000), 10 * 60 * 1000);
+schedule(() => pruneOldJobs(30 * 60 * 1000), 10 * 60 * 1000);
 
 // Prune expired revoked-token entries every 60 minutes (and once at startup)
 pruneRevokedTokens();
-setInterval(() => pruneRevokedTokens(), 60 * 60 * 1000);
+schedule(() => pruneRevokedTokens(), 60 * 60 * 1000);
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 server.listen(PORT, () => {
