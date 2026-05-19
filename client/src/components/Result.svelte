@@ -7,7 +7,9 @@
   let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null, onUseAsInput = null, initialSaved = false, onSaved = () => {}, thumbnailB64 = null } = $props();
 
   let imageUrl = $state(null);
-  let imageBytes = $state(null); // raw PNG bytes, kept alongside imageUrl for save
+  let imageBytes = $state(null); // raw image bytes, kept alongside imageUrl for save
+  let imageMime = $state('image/png');
+  let imageExt = $state('png');
   let decryptError = $state('');
   let decrypting = $state(true);
   let saving = $state(false);
@@ -22,6 +24,29 @@
   const DECRYPT_TIMEOUT_MS = 15_000;
   let _decryptInFlight = false; // re-entry guard
   let _decryptStarted = false;  // one-shot: effect may only initiate decrypt once
+
+  // Sniff the image format from the first bytes. ComfyUI can return PNG, JPEG, or WebP;
+  // hardcoding image/png broke previews on non-PNG outputs in some browsers.
+  function sniffImage(bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+      return { mime: 'image/png', ext: 'png' };
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+      return { mime: 'image/jpeg', ext: 'jpg' };
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+      return { mime: 'image/webp', ext: 'webp' };
+    }
+    if (bytes.length >= 4 &&
+        bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+      return { mime: 'image/gif', ext: 'gif' };
+    }
+    return { mime: 'image/png', ext: 'png' };
+  }
 
   // Auto-trigger save once masterKey arrives after a pending save request
   $effect(() => {
@@ -68,7 +93,10 @@
       const plaintext = await Promise.race([decryptPromise, timeoutPromise]);
 
       imageBytes = plaintext;
-      const blob = new Blob([plaintext], { type: 'image/png' });
+      const sniffed = sniffImage(plaintext);
+      imageMime = sniffed.mime;
+      imageExt = sniffed.ext;
+      const blob = new Blob([plaintext], { type: imageMime });
       if (imageUrl) URL.revokeObjectURL(imageUrl);
       imageUrl = URL.createObjectURL(blob);
       // Notify parent so dismissed cards can show the image
@@ -94,8 +122,8 @@
       const ok = await onUseAsInput({
         slot,
         bytes: imageBytes,
-        mime: 'image/png',
-        filename: `result-${result?.jobId ?? 'image'}.png`,
+        mime: imageMime,
+        filename: `result-${result?.jobId ?? 'image'}.${imageExt}`,
       });
       if (ok) {
         useInputOpen = false;
@@ -193,7 +221,7 @@
 
         <!-- Overlay: download button only -->
         <div class="img-overlay">
-          <a href={imageUrl} download="result.png" class="overlay-btn overlay-download" aria-label="Download image">
+          <a href={imageUrl} download={`result.${imageExt}`} class="overlay-btn overlay-download" aria-label="Download image">
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M10 3v10M6 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
