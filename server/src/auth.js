@@ -103,12 +103,18 @@ export function requireAuth(req, res, next) {
 /**
  * Requires a valid JWT AND status === 'active'.
  * Re-checks the DB so status changes take effect immediately.
+ *
+ * Code-user JWTs (type='code_user', no userId) are rejected explicitly so we
+ * don't rely on getUserById(undefined) returning null by accident.
  */
 export function requireActive(req, res, next) {
   const token = extractToken(req);
   const payload = verifyJwt(token);
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (typeof payload.userId !== 'number') {
+    return res.status(403).json({ error: 'Account not active' });
   }
   const user = getUserById(payload.userId);
   if (!user || user.status !== 'active') {
@@ -126,6 +132,9 @@ export function requireAdmin(req, res, next) {
   const payload = verifyJwt(token);
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (typeof payload.userId !== 'number') {
+    return res.status(403).json({ error: 'Account not active' });
   }
   const user = getUserById(payload.userId);
   if (!user || user.status !== 'active') {
