@@ -593,6 +593,14 @@ app.post('/vault/setup', requireActive, (req, res) => {
   if (!encryptedMasterKeyRecovery) {
     return res.status(400).json({ error: 'Recovery-wrapped master key is required' });
   }
+  // A recovery-only vault is unusable in normal day-to-day flow: the unlock
+  // panel only shows bio/password buttons, so the user would be locked into
+  // using their recovery key every session. The browser client always sends
+  // at least one — enforce it server-side so a buggy or malicious client
+  // can't trap the user.
+  if (!encryptedMasterKeyBio && !encryptedMasterKeyPw) {
+    return res.status(400).json({ error: 'At least one of bio or password unlock must be configured' });
+  }
 
   createVault(userId, {
     encryptedMasterKeyBio: encryptedMasterKeyBio ? Buffer.from(encryptedMasterKeyBio, 'base64') : null,
