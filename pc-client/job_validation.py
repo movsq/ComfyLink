@@ -4,7 +4,9 @@ MIN_STEPS = 1
 MAX_STEPS = 8
 
 MIN_SEED = 0
-MAX_SEED = 2**53 - 1
+# Matches the client-side cap. 2^32 - 1 is well below JS's MAX_SAFE_INTEGER and
+# avoids float-precision issues in the browser's increment path.
+MAX_SEED = 2**32 - 1
 
 
 def _validate_int_range(value, field: str, minimum: int, maximum: int) -> int:
@@ -16,7 +18,7 @@ def _validate_int_range(value, field: str, minimum: int, maximum: int) -> int:
 
 
 def validate_seed(value) -> int:
-    """Validate a ComfyUI noise seed within JavaScript's safe integer range."""
+    """Validate a ComfyUI noise seed within the shared client/PC range (0..2^32-1)."""
     return _validate_int_range(value, "seed", MIN_SEED, MAX_SEED)
 
 

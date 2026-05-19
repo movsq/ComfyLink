@@ -69,7 +69,8 @@
   const MIN_STEPS = 1;
   const MAX_STEPS = 8;
   const MIN_SEED = 0;
-  const MAX_SEED = Number.MAX_SAFE_INTEGER;
+  // Matches App.svelte and pc-client/job_validation.py. See the App.svelte comment.
+  const MAX_SEED = 2 ** 32 - 1;
   const loraOptions = [
     { value: 'none', label: 'None' },
     { value: 'lora1.safetensors', label: 'LoRa - N1' },
