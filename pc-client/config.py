@@ -54,6 +54,14 @@ SKIP_TLS_VERIFY: bool = os.environ.get("SKIP_TLS_VERIFY", "false").lower() == "t
 PRIVATE_KEY_PATH: str = os.environ.get("PRIVATE_KEY_PATH", "private_key.pem")
 PUBLIC_KEY_PATH: str = os.environ.get("PUBLIC_KEY_PATH", "public_key.pem")
 
+# Passphrase for the private key, if it was generated with one via keygen.py.
+# Leave unset when the key is stored unencrypted. Loaded as bytes because that
+# is what cryptography.serialization.load_pem_private_key expects.
+_PRIVATE_KEY_PASSWORD_RAW: str = os.environ.get("PC_PRIVATE_KEY_PASSWORD", "")
+PRIVATE_KEY_PASSWORD: bytes | None = (
+    _PRIVATE_KEY_PASSWORD_RAW.encode() if _PRIVATE_KEY_PASSWORD_RAW else None
+)
+
 # ── Reconnect ──────────────────────────────────────────────────────────────────
 RECONNECT_DELAY: float = float(os.environ.get("RECONNECT_DELAY", "5"))
 

@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from config import PRIVATE_KEY_PATH, PUBLIC_KEY_PATH
+from config import PRIVATE_KEY_PATH, PRIVATE_KEY_PASSWORD, PUBLIC_KEY_PATH
 from job_validation import validate_seed, validate_steps
 
 MAX_PROMPT_LEN = 4_000  # characters; enforces the same limit as the client textarea
@@ -52,12 +52,26 @@ def load_private_key(password: bytes | None = None):
     The result is cached after the first successful load so subsequent calls
     (e.g. per-job decryption) skip the disk read + DER parse entirely.
 
-    Pass ``password`` if the key was generated with a passphrase via keygen.py.
+    If ``password`` is not supplied, falls back to PRIVATE_KEY_PASSWORD from
+    config (set via the PC_PRIVATE_KEY_PASSWORD env var). This is what keygen.py
+    asks for at key creation time — without this wiring the prompt was a no-op
+    and any passphrase-protected key would fail to load.
     """
     global _private_key_cache
     if _private_key_cache is None:
+        if password is None:
+            password = PRIVATE_KEY_PASSWORD
         pem = Path(PRIVATE_KEY_PATH).read_bytes()
-        _private_key_cache = serialization.load_pem_private_key(pem, password=password)
+        try:
+            _private_key_cache = serialization.load_pem_private_key(pem, password=password)
+        except TypeError as exc:
+            # cryptography raises TypeError when the password is None for an
+            # encrypted key, or non-None for an unencrypted one.
+            raise RuntimeError(
+                "Could not load the PC private key. If it is passphrase-protected, "
+                "set PC_PRIVATE_KEY_PASSWORD in .env. If it is not, leave that "
+                "variable unset."
+            ) from exc
     return _private_key_cache
 
 
