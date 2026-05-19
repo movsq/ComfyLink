@@ -5,8 +5,10 @@ Mirrors the browser-side crypto.js logic, using the `cryptography` library.
 
 Algorithm:
     Key exchange:  ECDH with P-256 (matches WebCrypto on the phone)
-    Symmetric:     AES-256-GCM
-    Key derivation: HKDF-SHA-256 from the ECDH shared secret
+    Symmetric:     AES-256-GCM (separate keys per direction)
+    Key derivation: HKDF-SHA-256 from the ECDH shared secret, two outputs:
+        info="flux2-klein-v1:job"    → phone→PC payload key
+        info="flux2-klein-v1:result" → PC→phone result key
 
 Wire format (set by the phone in crypto.js encodeJobPayload):
     [2 bytes big-endian]  ephPubKeyLen
@@ -91,20 +93,41 @@ def load_public_key_b64() -> str:
 
 # ── Key derivation ─────────────────────────────────────────────────────────────
 
-def _derive_aes_key(private_key, peer_public_key: EllipticCurvePublicKey) -> bytes:
+_HKDF_SALT = bytes(32)  # fixed zero salt — matches JS side
+_HKDF_INFO_JOB    = b"flux2-klein-v1:job"
+_HKDF_INFO_RESULT = b"flux2-klein-v1:result"
+
+
+def _derive_session_keys(
+    private_key,
+    peer_public_key: EllipticCurvePublicKey,
+) -> tuple[bytes, bytes]:
     """
-    ECDH + HKDF-SHA-256 → 32-byte AES-256-GCM key.
-    Mirrors deriveAESKey() in crypto.js exactly (same salt, same info string).
+    ECDH + HKDF-SHA-256 → (job_key, result_key), 32 bytes each.
+
+    Two separate keys instead of one shared key: the phone uses job_key to
+    encrypt the payload sent to the PC, and result_key to decrypt the image
+    the PC sends back. Keeping the directions on separate keys is textbook
+    practice for AES-GCM channels and makes it harder to confuse roles if the
+    wire format ever gains associated data per direction. Mirrors
+    deriveSessionKeys() on the browser side — both halves must agree on the
+    salt and info strings.
     """
     shared_secret = private_key.exchange(ECDH(), peer_public_key)
 
-    hkdf = HKDF(
+    job_key = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=bytes(32),                          # fixed zero salt — matches JS side
-        info=b"flux2-klein-v1",                    # matches JS side
-    )
-    return hkdf.derive(shared_secret)
+        salt=_HKDF_SALT,
+        info=_HKDF_INFO_JOB,
+    ).derive(shared_secret)
+    result_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_HKDF_SALT,
+        info=_HKDF_INFO_RESULT,
+    ).derive(shared_secret)
+    return job_key, result_key
 
 
 # ── Payload decoding ───────────────────────────────────────────────────────────
@@ -153,7 +176,7 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     Decrypt a job payload from the phone.
 
     Returns:
-        (job_params, aes_key_bytes)
+        (job_params, result_aes_key)
 
         job_params keys:
             prompt        (str)
@@ -166,7 +189,9 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
             loraStrength  (float)
             quantization  (str | None) — full GGUF filename, e.g. "flux-2-klein-9b-Q8_0.gguf"
 
-        aes_key_bytes is kept so the result can be encrypted with the same key.
+        result_aes_key is the second HKDF output — the *result* direction key,
+        which the caller passes to encrypt_result() to encrypt the image
+        sent back to the phone.
 
     Raises:
         Exception if decryption or parsing fails.
@@ -178,11 +203,11 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     # Load ephemeral public key from SPKI DER
     eph_pub_key = serialization.load_der_public_key(eph_pub_der)
 
-    # Derive the same AES key the phone used
-    aes_key_bytes = _derive_aes_key(private_key, eph_pub_key)
+    # Derive both direction keys; the phone encrypted the payload with job_key.
+    job_key, result_key = _derive_session_keys(private_key, eph_pub_key)
 
     # Decrypt — AESGCM.decrypt raises InvalidTag on authentication failure
-    aesgcm = AESGCM(aes_key_bytes)
+    aesgcm = AESGCM(job_key)
     plaintext = aesgcm.decrypt(iv, ciphertext, None)
 
     # Plaintext is JSON: { "prompt", "image1", "image2", "seed", "steps", "sampler" }
@@ -211,17 +236,18 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     if len(job_params["prompt"]) > MAX_PROMPT_LEN:
         raise ValueError(f"Prompt too long (max {MAX_PROMPT_LEN} characters)")
 
-    return job_params, aes_key_bytes
+    return job_params, result_key
 
 
-def encrypt_result(aes_key_bytes: bytes, result_image_bytes: bytes) -> str:
+def encrypt_result(result_aes_key: bytes, result_image_bytes: bytes) -> str:
     """
-    Encrypt the result image bytes with the same AES key used for the job.
+    Encrypt the result image bytes with the result-direction AES key returned
+    by decrypt_job().
 
     Returns:
         base64 string in wire format [iv + ciphertext] expected by the phone.
     """
     iv = os.urandom(12)
-    aesgcm = AESGCM(aes_key_bytes)
+    aesgcm = AESGCM(result_aes_key)
     ciphertext = aesgcm.encrypt(iv, result_image_bytes, None)
     return encode_result_payload(iv, ciphertext)

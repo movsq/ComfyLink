@@ -4,7 +4,7 @@
     generateEphemeralKeyPair,
     importPcPublicKey,
     verifyPcKeyFingerprint,
-    deriveAESKey,
+    deriveSessionKeys,
     encryptPayload,
     exportEphemeralPublicKey,
     encodeJobPayload,
@@ -394,11 +394,14 @@
       await verifyPcKeyFingerprint(pcPubKeyB64);
       const pcPublicKey  = await importPcPublicKey(pcPubKeyB64);
       const ephKeyPair   = await generateEphemeralKeyPair();
-      const aesKey       = await deriveAESKey(ephKeyPair.privateKey, pcPublicKey);
+      // jobKey encrypts the outgoing job; resultKey decrypts the PC's reply.
+      // Only resultKey is kept around past submit — once the encrypted payload
+      // is on the wire, jobKey has no further use.
+      const { jobKey, resultKey: aesKey } = await deriveSessionKeys(ephKeyPair.privateKey, pcPublicKey);
       const image1B64    = await fileToBase64(imageFile1);
       const image2B64    = await fileToBase64(imageFile2);
       const plaintext    = new TextEncoder().encode(JSON.stringify({ prompt: prompt.trim(), image1: image1B64, image2: image2B64, seed: safeSeed, steps: safeSteps, sampler, lora: lora !== 'none' ? lora : null, loraStrength: Number(loraStrength), quantization, clipModel }));
-      const { iv, ciphertext } = await encryptPayload(aesKey, plaintext);
+      const { iv, ciphertext } = await encryptPayload(jobKey, plaintext);
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
 
