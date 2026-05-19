@@ -7,6 +7,8 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PC_SECRET = process.env.PC_SECRET;
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS ?? '86400000', 10);
+// Cached at startup to match index.js — both paths must agree on whether codes are enabled.
+const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
@@ -150,7 +152,7 @@ export function requireActiveOrCode(req, res, next) {
   }
   if (payload.type === 'code_user') {
     // Re-check the DB so revoked/expired/exhausted codes are rejected immediately.
-    if (process.env.ACCESS_CODES_ENABLED === 'false') {
+    if (!ACCESS_CODES_ENABLED) {
       return res.status(403).json({ error: 'Access codes are disabled' });
     }
     const code = findInviteCodeById(payload.codeId);
