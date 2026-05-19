@@ -916,10 +916,17 @@ const PASSWORD_LETTER_RE = /[a-zA-Z]/;
 const PASSWORD_NUMBER_RE = /[0-9]/;
 
 /**
- * Validate password against the site's policy.
+ * Validate the *account login* password (not the vault password).
  * Requirements:
  *   - Minimum 8 characters
  *   - At least 2 of: letters, numbers, symbols (from the allowed set)
+ *
+ * The vault password (client-side, see VaultSetup.svelte) is intentionally
+ * stricter (12 chars, no class requirement) because it protects the encrypted
+ * master key against offline brute-force after a server compromise. The
+ * account password is bcrypt'd server-side and rate-limited, so 8+classes is
+ * sufficient. Do not unify the two without weighing both attack models.
+ *
  * Returns null if valid; an error string if invalid.
  */
 function validatePassword(pw) {
