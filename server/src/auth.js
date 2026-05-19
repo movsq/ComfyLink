@@ -46,11 +46,11 @@ export async function verifyGoogleToken(idToken) {
 export function signJwt({ userId, googleSub, status, isAdmin, codeId, type }) {
   const payload = { jti: randomUUID() };
   if (userId != null) payload.userId = userId;
-  if (googleSub) payload.googleSub = googleSub;
-  if (status) payload.status = status;
+  if (googleSub != null) payload.googleSub = googleSub;
+  if (status != null) payload.status = status;
   if (isAdmin != null) payload.isAdmin = isAdmin;
   if (codeId != null) payload.codeId = codeId;
-  if (type) payload.type = type;
+  if (type != null) payload.type = type;
   return jwt.sign(
     payload,
     JWT_SECRET,
