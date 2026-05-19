@@ -398,6 +398,12 @@ async def process_job(
                 mtype = msg.get("type")
                 if mtype == "progress":
                     d = msg.get("data", {})
+                    # Only forward progress for THIS prompt. ComfyUI's WS can
+                    # emit messages for other concurrent clients on the same
+                    # server; without this filter the phone's progress bar
+                    # would jump around when a sibling job is also running.
+                    if d.get("prompt_id") not in (None, prompt_id):
+                        continue
                     if progress_callback:
                         try:
                             await progress_callback(
