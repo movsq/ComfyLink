@@ -7,6 +7,8 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PC_SECRET = process.env.PC_SECRET;
 const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS ?? '86400000', 10);
+// Cached at startup to match index.js — both paths must agree on whether codes are enabled.
+const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
@@ -46,11 +48,11 @@ export async function verifyGoogleToken(idToken) {
 export function signJwt({ userId, googleSub, status, isAdmin, codeId, type }) {
   const payload = { jti: randomUUID() };
   if (userId != null) payload.userId = userId;
-  if (googleSub) payload.googleSub = googleSub;
-  if (status) payload.status = status;
+  if (googleSub != null) payload.googleSub = googleSub;
+  if (status != null) payload.status = status;
   if (isAdmin != null) payload.isAdmin = isAdmin;
   if (codeId != null) payload.codeId = codeId;
-  if (type) payload.type = type;
+  if (type != null) payload.type = type;
   return jwt.sign(
     payload,
     JWT_SECRET,
@@ -101,12 +103,18 @@ export function requireAuth(req, res, next) {
 /**
  * Requires a valid JWT AND status === 'active'.
  * Re-checks the DB so status changes take effect immediately.
+ *
+ * Code-user JWTs (type='code_user', no userId) are rejected explicitly so we
+ * don't rely on getUserById(undefined) returning null by accident.
  */
 export function requireActive(req, res, next) {
   const token = extractToken(req);
   const payload = verifyJwt(token);
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (typeof payload.userId !== 'number') {
+    return res.status(403).json({ error: 'Account not active' });
   }
   const user = getUserById(payload.userId);
   if (!user || user.status !== 'active') {
@@ -124,6 +132,9 @@ export function requireAdmin(req, res, next) {
   const payload = verifyJwt(token);
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (typeof payload.userId !== 'number') {
+    return res.status(403).json({ error: 'Account not active' });
   }
   const user = getUserById(payload.userId);
   if (!user || user.status !== 'active') {
@@ -150,7 +161,7 @@ export function requireActiveOrCode(req, res, next) {
   }
   if (payload.type === 'code_user') {
     // Re-check the DB so revoked/expired/exhausted codes are rejected immediately.
-    if (process.env.ACCESS_CODES_ENABLED === 'false') {
+    if (!ACCESS_CODES_ENABLED) {
       return res.status(403).json({ error: 'Access codes are disabled' });
     }
     const code = findInviteCodeById(payload.codeId);

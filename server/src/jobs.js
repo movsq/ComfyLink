@@ -273,11 +273,27 @@ function cleanQueue() {
   }
 }
 
-/** Prune jobs older than maxAgeMs to avoid unbounded memory growth. */
-export function pruneOldJobs(maxAgeMs = 30 * 60 * 1000) {
+/**
+ * Prune jobs to avoid unbounded memory growth.
+ *
+ * Terminal jobs (done/error/cancelled) are pruned after maxAgeMs — they're kept
+ * around briefly so a reconnecting owner can replay the result.
+ *
+ * In-flight jobs (pending/processing) are NOT pruned by maxAgeMs because the
+ * server would otherwise silently drop a PC's result that arrives after the
+ * cutoff (PC's WS timeout is 10 min; a long PC-side compute on top of queue
+ * wait can plausibly approach 30 min). They're only pruned after orphanMs, by
+ * which point the PC has almost certainly died — keep this well above the
+ * PC's own timeout so we don't race it.
+ */
+export function pruneOldJobs(maxAgeMs = 30 * 60 * 1000, orphanMs = 6 * 60 * 60 * 1000) {
   const now = Date.now();
   for (const [id, job] of jobs) {
-    if (now - job.createdAt > maxAgeMs) {
+    const age = now - job.createdAt;
+    const terminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';
+    if (terminal && age > maxAgeMs) {
+      jobs.delete(id);
+    } else if (!terminal && age > orphanMs) {
       jobs.delete(id);
     }
   }

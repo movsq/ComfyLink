@@ -243,6 +243,25 @@ function sendJson(ws, obj) {
   }
 }
 
+/**
+ * Send and wait for the underlying socket to actually flush the bytes. The ws
+ * library invokes the callback with an err once the OS accepts the data (or
+ * when the connection drops before it can be sent), which is a much better
+ * "delivered to the wire" signal than sendJson()'s "send() did not throw".
+ * Use this for messages whose loss is unacceptable, e.g. the encrypted result.
+ */
+function sendJsonAck(ws, obj, onFlushed) {
+  if (!ws || ws.readyState !== 1) {
+    onFlushed(false);
+    return;
+  }
+  try {
+    ws.send(JSON.stringify(obj), (err) => onFlushed(!err));
+  } catch {
+    onFlushed(false);
+  }
+}
+
 function getSessionInvalidReason(jwtPayload, rawToken) {
   const verified = verifyJwt(rawToken);
   if (!verified) return 'token_expired';
@@ -285,7 +304,11 @@ if (!allowedOrigins && process.env.DEPLOY_MODE === 'remote') {
 }
 app.use(cors(allowedOrigins ? { origin: allowedOrigins } : undefined));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(express.json({ limit: '20mb' }));
+// 30 MB covers a 20 MB binary encrypted image (≈ 27 MB base64) plus the
+// thumbnail blob and JSON overhead written to POST /results. Other endpoints
+// post far smaller bodies, so the headroom is harmless. The per-route check
+// inside /results still enforces the 20 MB binary cap.
+app.use(express.json({ limit: '30mb' }));
 
 // Rate limiting
 // Auth endpoints: 30 req/min per IP — generous enough for normal interactive login
@@ -589,6 +612,14 @@ app.post('/vault/setup', requireActive, (req, res) => {
   if (!encryptedMasterKeyRecovery) {
     return res.status(400).json({ error: 'Recovery-wrapped master key is required' });
   }
+  // A recovery-only vault is unusable in normal day-to-day flow: the unlock
+  // panel only shows bio/password buttons, so the user would be locked into
+  // using their recovery key every session. The browser client always sends
+  // at least one — enforce it server-side so a buggy or malicious client
+  // can't trap the user.
+  if (!encryptedMasterKeyBio && !encryptedMasterKeyPw) {
+    return res.status(400).json({ error: 'At least one of bio or password unlock must be configured' });
+  }
 
   createVault(userId, {
     encryptedMasterKeyBio: encryptedMasterKeyBio ? Buffer.from(encryptedMasterKeyBio, 'base64') : null,
@@ -704,7 +735,7 @@ app.delete('/vault', requireActive, async (req, res) => {
 // ── Stored results ────────────────────────────────────────────────────────────
 
 /** POST /results — store encrypted full blob + optional encrypted thumbnail */
-app.post('/results', requireActive, express.json({ limit: '25mb' }), (req, res) => {
+app.post('/results', requireActive, (req, res) => {
   const { encryptedFull, ivFull, fullSizeBytes, jobId, encryptedThumb, ivThumb } = req.body ?? {};
 
   if (!encryptedFull || !ivFull) {
@@ -904,10 +935,17 @@ const PASSWORD_LETTER_RE = /[a-zA-Z]/;
 const PASSWORD_NUMBER_RE = /[0-9]/;
 
 /**
- * Validate password against the site's policy.
+ * Validate the *account login* password (not the vault password).
  * Requirements:
  *   - Minimum 8 characters
  *   - At least 2 of: letters, numbers, symbols (from the allowed set)
+ *
+ * The vault password (client-side, see VaultSetup.svelte) is intentionally
+ * stricter (12 chars, no class requirement) because it protects the encrypted
+ * master key against offline brute-force after a server compromise. The
+ * account password is bcrypt'd server-side and rate-limited, so 8+classes is
+ * sufficient. Do not unify the two without weighing both attack models.
+ *
  * Returns null if valid; an error string if invalid.
  */
 function validatePassword(pw) {
@@ -1177,10 +1215,24 @@ const server = createServer(app);
 // ── WebSocket servers (noServer mode, we route upgrades manually) ─────────────
 const wss = new WebSocketServer({ noServer: true, maxPayload: 100 * 1024 * 1024 });
 
+// ── Background timers ─────────────────────────────────────────────────────────
+// All long-lived setInterval handles are collected here so server.on('close')
+// can clear them; otherwise the Node event loop never quiesces on shutdown.
+const backgroundTimers = [];
+function schedule(fn, intervalMs) {
+  const t = setInterval(fn, intervalMs);
+  backgroundTimers.push(t);
+  return t;
+}
+server.on('close', () => {
+  for (const t of backgroundTimers) clearInterval(t);
+  backgroundTimers.length = 0;
+});
+
 // ── Heartbeat — keeps idle connections alive through NAT/firewall/proxy timeouts ─
 // 25 s is conservative enough to beat typical 30 s NAT idle timeouts.
 const PING_INTERVAL_MS = 25_000;
-const heartbeatTimer = setInterval(() => {
+schedule(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
       ws.terminate();
@@ -1190,7 +1242,6 @@ const heartbeatTimer = setInterval(() => {
     ws.ping();
   });
 }, PING_INTERVAL_MS);
-server.on('close', () => clearInterval(heartbeatTimer));
 
 // ── WS upgrade rate limiter ────────────────────────────────────────────────
 // Tracks connection attempts per IP to prevent unauthenticated connection
@@ -1200,22 +1251,34 @@ const WS_RATE_MAX = 20; // max upgrade attempts per IP per window
 const wsUpgradeTracker = new Map(); // Map<ip, { count, resetAt }>
 
 // Prune stale entries from the WS upgrade tracker every 5 minutes
-setInterval(() => {
+schedule(() => {
   const now = Date.now();
   for (const [ip, entry] of wsUpgradeTracker) {
     if (now >= entry.resetAt) wsUpgradeTracker.delete(ip);
   }
 }, 5 * 60_000);
 
+// Prune the per-user submit rate-limiter map. The Map is keyed by queueUserId
+// and was never cleared once seeded, so long-running processes accumulated one
+// entry per unique user/code ever seen. Drop expired timestamps every minute
+// and remove the entry entirely if no recent submits remain.
+schedule(() => {
+  const cutoff = Date.now() - WS_SUBMIT_WINDOW_MS;
+  for (const [userId, timestamps] of submitRateLimiter) {
+    while (timestamps.length && timestamps[0] <= cutoff) timestamps.shift();
+    if (timestamps.length === 0) submitRateLimiter.delete(userId);
+  }
+}, 60_000);
+
 // Prune code_auth_failures older than 5 minutes every 5 minutes
-setInterval(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
+schedule(() => pruneCodeAuthFailures(5 * 60_000), 5 * 60_000);
 
 // Prune email_login_failures older than 15 minutes every 5 minutes
-setInterval(() => pruneEmailLoginFailures(15 * 60_000), 5 * 60_000);
+schedule(() => pruneEmailLoginFailures(15 * 60_000), 5 * 60_000);
 
 // Prune job audit log entries older than 6 months once per day
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
-setInterval(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
+schedule(() => pruneJobAuditLogsOlderThan(SIX_MONTHS_MS), 24 * 60 * 60 * 1000);
 
 function getUpgradeIp(req) {
   // When behind a reverse proxy, take the right-most X-Forwarded-For hop
@@ -1335,7 +1398,13 @@ async function handlePcSocket(ws) {
     ws.on('message', handlePcMessage);
     ws.on('close', (code, reason) => {
       console.log(`[pc] Disconnected (code=${code} reason=${reason?.toString() ?? ''}).`);
-      if (pcSocket === ws) pcSocket = null;
+      // Only clear the cached pubkey if THIS socket is still the active PC.
+      // A late close event from a replaced socket must not blow away the new
+      // PC's cached key.
+      if (pcSocket === ws) {
+        pcSocket = null;
+        pcPublicKeyB64 = null;
+      }
     });
 
     // Dispatch any pending jobs now that PC is connected
@@ -1380,10 +1449,12 @@ function handlePcMessage(raw) {
 
   if (msg.type === 'progress') {
     // Validate numeric fields before forwarding — a compromised PC could push
-    // NaN, Infinity, or strings that would corrupt client state.
+    // NaN, Infinity, or strings that would corrupt client state. max must be
+    // strictly positive (clients divide by it) and value must not exceed it.
     const value = Number(msg.value);
     const max   = Number(msg.max);
-    if (!Number.isFinite(value) || !Number.isFinite(max) || value < 0 || max < 0) return;
+    if (!Number.isFinite(value) || !Number.isFinite(max)) return;
+    if (max <= 0 || value < 0 || value > max) return;
     if (typeof msg.jobId !== 'string' || !msg.jobId) return;
     const job = getJob(msg.jobId);
     if (!job || job.status !== 'processing') return;
@@ -1441,13 +1512,14 @@ function handlePcMessage(raw) {
     completeJob(msg.jobId, msg.payload, relayedThumbnail);
     const relayMsg = { type: 'result', jobId: msg.jobId, payload: msg.payload };
     if (relayedThumbnail !== undefined) relayMsg.thumbnail = relayedThumbnail;
-    const deliveredLive = sendJson(job.phoneWs, relayMsg);
+    // Wait for the socket to actually accept the bytes before deleting the
+    // job. If the connection drops before the buffered send flushes, leave
+    // the job in 'done' state so the replay-on-reconnect path can resend.
+    const jobIdForDelete = msg.jobId;
+    sendJsonAck(job.phoneWs, relayMsg, (delivered) => {
+      if (delivered) deleteJob(jobIdForDelete);
+    });
     console.log(`[pc] Job ${msg.jobId} completed.`);
-    // If nobody is currently connected for this owner, keep the completed job
-    // in memory and replay it on next reconnect.
-    if (deliveredLive) {
-      deleteJob(msg.jobId);
-    }
     // Dispatch next
     dispatchNextJob();
     broadcastQueueUpdate();
@@ -1905,11 +1977,11 @@ function handleAdminSocket(ws, userId) {
 initAuth();
 
 // Prune stale jobs every 10 minutes
-setInterval(() => pruneOldJobs(30 * 60 * 1000), 10 * 60 * 1000);
+schedule(() => pruneOldJobs(30 * 60 * 1000), 10 * 60 * 1000);
 
 // Prune expired revoked-token entries every 60 minutes (and once at startup)
 pruneRevokedTokens();
-setInterval(() => pruneRevokedTokens(), 60 * 60 * 1000);
+schedule(() => pruneRevokedTokens(), 60 * 60 * 1000);
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 server.listen(PORT, () => {

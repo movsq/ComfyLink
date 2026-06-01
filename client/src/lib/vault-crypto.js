@@ -210,6 +210,7 @@ export function recoveryKeyToJSON(bytes, userEmail) {
   return {
     version: 1,
     app: 'ComfyLink',
+    userEmail: userEmail ?? null,
     recoveryKey: bufToB64(bytes),
     createdAt: new Date().toISOString(),
   };

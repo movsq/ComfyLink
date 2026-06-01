@@ -48,6 +48,13 @@ export async function registerCredential(userId, userName, prfSalt) {
   const publicKeyOptions = {
     challenge: crypto.getRandomValues(new Uint8Array(32)),
     rp: {
+      // Explicit rp.id pins the credential to the current hostname. Without
+      // this the browser defaults to the effective domain anyway, so the
+      // behaviour is unchanged — but the explicit value makes it visible that
+      // credentials registered on one hostname (e.g. Tailscale MagicDNS) will
+      // NOT work when the same site is later accessed via a different
+      // hostname (e.g. a public domain). Both halves must agree on rp.id.
+      id: window.location.hostname,
       name: 'ComfyLink',
     },
     user: {
@@ -112,6 +119,8 @@ export async function authenticateWithPRF(credentialIdB64, prfSalt) {
   const assertion = await navigator.credentials.get({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
+      // Must match the rpId used at registration. See registerCredential().
+      rpId: window.location.hostname,
       allowCredentials: [
         {
           id: credentialIdBytes,

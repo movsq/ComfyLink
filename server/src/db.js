@@ -537,6 +537,17 @@ export function findUserByEmail(email) {
 }
 
 /**
+ * Return every user row matching this email. The email column is only unique
+ * for email-auth users (partial index where google_sub IS NULL); a Google user
+ * and an email-auth user can legitimately share the same email, and a manual
+ * DB edit could even create two Google users on one address. Use this when the
+ * caller must disambiguate rather than silently pick the first row.
+ */
+export function findAllUsersByEmail(email) {
+  return stmtFindByEmail.all(email);
+}
+
+/**
  * Find a user by email who registered via email/password (not Google).
  * Used during email login to avoid leaking whether a Google account exists
  * with that email.

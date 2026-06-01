@@ -147,7 +147,9 @@ async def handle_job(ws, msg: dict) -> None:
 
     try:
         # ── Decrypt ───────────────────────────────────────────────────────────
-        job_params, aes_key_bytes = decrypt_job(payload)
+        # result_aes_key is the result-direction HKDF output; we need it later
+        # to encrypt the image we send back to the phone.
+        job_params, result_aes_key = decrypt_job(payload)
         log.info(f"[job {job_id}] Decrypted. Prompt: ***")
 
         async def send_progress(value: int, max_val: int, node: str | None) -> None:
@@ -189,7 +191,7 @@ async def handle_job(ws, msg: dict) -> None:
             log.warning(f"[job {job_id}] Thumbnail generation failed (non-fatal): {exc}")
 
         # ── Encrypt result ────────────────────────────────────────────────────
-        encrypted_result = encrypt_result(aes_key_bytes, result_bytes)
+        encrypted_result = encrypt_result(result_aes_key, result_bytes)
 
         # ── Send back ─────────────────────────────────────────────────────────
         result_msg: dict = {"type": "result", "jobId": job_id, "payload": encrypted_result}

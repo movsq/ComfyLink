@@ -5,8 +5,10 @@ Mirrors the browser-side crypto.js logic, using the `cryptography` library.
 
 Algorithm:
     Key exchange:  ECDH with P-256 (matches WebCrypto on the phone)
-    Symmetric:     AES-256-GCM
-    Key derivation: HKDF-SHA-256 from the ECDH shared secret
+    Symmetric:     AES-256-GCM (separate keys per direction)
+    Key derivation: HKDF-SHA-256 from the ECDH shared secret, two outputs:
+        info="flux2-klein-v1:job"    → phone→PC payload key
+        info="flux2-klein-v1:result" → PC→phone result key
 
 Wire format (set by the phone in crypto.js encodeJobPayload):
     [2 bytes big-endian]  ephPubKeyLen
@@ -34,7 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from config import PRIVATE_KEY_PATH, PUBLIC_KEY_PATH
+from config import PRIVATE_KEY_PATH, PRIVATE_KEY_PASSWORD, PUBLIC_KEY_PATH
 from job_validation import validate_seed, validate_steps
 
 MAX_PROMPT_LEN = 4_000  # characters; enforces the same limit as the client textarea
@@ -52,12 +54,26 @@ def load_private_key(password: bytes | None = None):
     The result is cached after the first successful load so subsequent calls
     (e.g. per-job decryption) skip the disk read + DER parse entirely.
 
-    Pass ``password`` if the key was generated with a passphrase via keygen.py.
+    If ``password`` is not supplied, falls back to PRIVATE_KEY_PASSWORD from
+    config (set via the PC_PRIVATE_KEY_PASSWORD env var). This is what keygen.py
+    asks for at key creation time — without this wiring the prompt was a no-op
+    and any passphrase-protected key would fail to load.
     """
     global _private_key_cache
     if _private_key_cache is None:
+        if password is None:
+            password = PRIVATE_KEY_PASSWORD
         pem = Path(PRIVATE_KEY_PATH).read_bytes()
-        _private_key_cache = serialization.load_pem_private_key(pem, password=password)
+        try:
+            _private_key_cache = serialization.load_pem_private_key(pem, password=password)
+        except TypeError as exc:
+            # cryptography raises TypeError when the password is None for an
+            # encrypted key, or non-None for an unencrypted one.
+            raise RuntimeError(
+                "Could not load the PC private key. If it is passphrase-protected, "
+                "set PC_PRIVATE_KEY_PASSWORD in .env. If it is not, leave that "
+                "variable unset."
+            ) from exc
     return _private_key_cache
 
 
@@ -77,20 +93,41 @@ def load_public_key_b64() -> str:
 
 # ── Key derivation ─────────────────────────────────────────────────────────────
 
-def _derive_aes_key(private_key, peer_public_key: EllipticCurvePublicKey) -> bytes:
+_HKDF_SALT = bytes(32)  # fixed zero salt — matches JS side
+_HKDF_INFO_JOB    = b"flux2-klein-v1:job"
+_HKDF_INFO_RESULT = b"flux2-klein-v1:result"
+
+
+def _derive_session_keys(
+    private_key,
+    peer_public_key: EllipticCurvePublicKey,
+) -> tuple[bytes, bytes]:
     """
-    ECDH + HKDF-SHA-256 → 32-byte AES-256-GCM key.
-    Mirrors deriveAESKey() in crypto.js exactly (same salt, same info string).
+    ECDH + HKDF-SHA-256 → (job_key, result_key), 32 bytes each.
+
+    Two separate keys instead of one shared key: the phone uses job_key to
+    encrypt the payload sent to the PC, and result_key to decrypt the image
+    the PC sends back. Keeping the directions on separate keys is textbook
+    practice for AES-GCM channels and makes it harder to confuse roles if the
+    wire format ever gains associated data per direction. Mirrors
+    deriveSessionKeys() on the browser side — both halves must agree on the
+    salt and info strings.
     """
     shared_secret = private_key.exchange(ECDH(), peer_public_key)
 
-    hkdf = HKDF(
+    job_key = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=bytes(32),                          # fixed zero salt — matches JS side
-        info=b"flux2-klein-v1",                    # matches JS side
-    )
-    return hkdf.derive(shared_secret)
+        salt=_HKDF_SALT,
+        info=_HKDF_INFO_JOB,
+    ).derive(shared_secret)
+    result_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_HKDF_SALT,
+        info=_HKDF_INFO_RESULT,
+    ).derive(shared_secret)
+    return job_key, result_key
 
 
 # ── Payload decoding ───────────────────────────────────────────────────────────
@@ -101,9 +138,22 @@ def decode_job_payload(b64_payload: str) -> tuple[bytes, bytes, bytes]:
 
     Returns:
         (eph_pub_key_der, iv, ciphertext)
+
+    Raises ValueError on malformed payloads (header too short, length field
+    larger than the remaining buffer, no room for IV + ciphertext).
     """
     raw = base64.b64decode(b64_payload)
+    # 2-byte length + at least 1 byte of key + 12 bytes IV + at least 16 bytes
+    # for the AES-GCM tag (no plaintext) is the absolute minimum.
+    if len(raw) < 2 + 1 + 12 + 16:
+        raise ValueError("Job payload too short")
     key_len = struct.unpack(">H", raw[:2])[0]           # big-endian uint16
+    # SPKI for a P-256 public key is 91 bytes; cap at 256 to leave slack for
+    # any future curve while still rejecting obvious garbage.
+    if key_len == 0 or key_len > 256:
+        raise ValueError(f"Invalid ephemeral key length: {key_len}")
+    if 2 + key_len + 12 + 16 > len(raw):
+        raise ValueError("Job payload truncated")
     eph_pub_der = raw[2 : 2 + key_len]
     iv = raw[2 + key_len : 2 + key_len + 12]
     ciphertext = raw[2 + key_len + 12 :]
@@ -126,7 +176,7 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     Decrypt a job payload from the phone.
 
     Returns:
-        (job_params, aes_key_bytes)
+        (job_params, result_aes_key)
 
         job_params keys:
             prompt        (str)
@@ -139,7 +189,9 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
             loraStrength  (float)
             quantization  (str | None) — full GGUF filename, e.g. "flux-2-klein-9b-Q8_0.gguf"
 
-        aes_key_bytes is kept so the result can be encrypted with the same key.
+        result_aes_key is the second HKDF output — the *result* direction key,
+        which the caller passes to encrypt_result() to encrypt the image
+        sent back to the phone.
 
     Raises:
         Exception if decryption or parsing fails.
@@ -151,11 +203,11 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     # Load ephemeral public key from SPKI DER
     eph_pub_key = serialization.load_der_public_key(eph_pub_der)
 
-    # Derive the same AES key the phone used
-    aes_key_bytes = _derive_aes_key(private_key, eph_pub_key)
+    # Derive both direction keys; the phone encrypted the payload with job_key.
+    job_key, result_key = _derive_session_keys(private_key, eph_pub_key)
 
     # Decrypt — AESGCM.decrypt raises InvalidTag on authentication failure
-    aesgcm = AESGCM(aes_key_bytes)
+    aesgcm = AESGCM(job_key)
     plaintext = aesgcm.decrypt(iv, ciphertext, None)
 
     # Plaintext is JSON: { "prompt", "image1", "image2", "seed", "steps", "sampler" }
@@ -184,17 +236,18 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
     if len(job_params["prompt"]) > MAX_PROMPT_LEN:
         raise ValueError(f"Prompt too long (max {MAX_PROMPT_LEN} characters)")
 
-    return job_params, aes_key_bytes
+    return job_params, result_key
 
 
-def encrypt_result(aes_key_bytes: bytes, result_image_bytes: bytes) -> str:
+def encrypt_result(result_aes_key: bytes, result_image_bytes: bytes) -> str:
     """
-    Encrypt the result image bytes with the same AES key used for the job.
+    Encrypt the result image bytes with the result-direction AES key returned
+    by decrypt_job().
 
     Returns:
         base64 string in wire format [iv + ciphertext] expected by the phone.
     """
     iv = os.urandom(12)
-    aesgcm = AESGCM(aes_key_bytes)
+    aesgcm = AESGCM(result_aes_key)
     ciphertext = aesgcm.encrypt(iv, result_image_bytes, None)
     return encode_result_payload(iv, ciphertext)

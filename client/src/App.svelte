@@ -18,7 +18,11 @@
   }
 
   const MIN_SEED = 0;
-  const MAX_SEED = Number.MAX_SAFE_INTEGER;
+  // 2^32 - 1 matches randomSeed()'s range and the PC-side validator. Don't raise
+  // this without verifying both the increment path and the server validator —
+  // approaching Number.MAX_SAFE_INTEGER makes seed + 1 a no-op due to float
+  // precision.
+  const MAX_SEED = 2 ** 32 - 1;
 
   // ── State ──────────────────────────────────────────────────────────────────
   // DEV bypass — Vite sets import.meta.env.DEV=true only during `npm run dev`.
