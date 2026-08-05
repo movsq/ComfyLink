@@ -5,7 +5,7 @@
 Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. Your PC connects outbound to a lightweight relay; the relay forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
 <details>
-<summary><h2>Screenshots</h2><sub>login, generate, queue, vault, admin — 12 shots</sub></summary>
+<summary><b>Screenshots</b> — login, generate, queue, vault, admin (12)</summary>
 
 <br>
 
