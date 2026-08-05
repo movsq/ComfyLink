@@ -9,7 +9,7 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
 <table>
   <tr>
     <td align="center"><b>Login</b><br><img src="docs/screenshots/login.png" width="220"></td>
-    <td align="center"><b>Login — Access Code</b><br><img src="docs/screenshots/login-access-code.png" width="220"></td>
+    <td align="center"><b>Register</b><br><img src="docs/screenshots/register.png" width="220"></td>
     <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.png" width="220"></td>
   </tr>
   <tr>
@@ -19,8 +19,8 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
   </tr>
   <tr>
     <td align="center"><b>Image Preview in Vault</b><br><img src="docs/screenshots/image-preview-in-vault.png" width="220"></td>
-    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/gallery%20%28vault%29.png" width="220"></td>
-    <td align="center"><b>Unlock Vault</b><br><img src="docs/screenshots/unlock-vault.png" width="220"></td>
+    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/vault-gallery.png" width="220"></td>
+    <td align="center"><b>Result Expiring + Queued</b><br><img src="docs/screenshots/result-expiring-queued.png" width="220"></td>
   </tr>
   <tr>
     <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
