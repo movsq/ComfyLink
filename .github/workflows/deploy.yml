@@ -7,6 +7,12 @@
 #   3. SSH_PRIVATE_KEY  — Private SSH key authorised to log in to the VPS
 #   4. VPS_PATH         — Deployment directory on the VPS
 #                         (e.g. "/root/flux2-9b-klein-remote")
+#
+# Build-time client config (must match the VPS .env exactly — Vite inlines
+# these into the bundle, so a stale or missing value ships a broken frontend):
+#
+#   5. VITE_GOOGLE_CLIENT_ID    — same value as GOOGLE_CLIENT_ID in the VPS .env
+#   6. VITE_PC_KEY_FINGERPRINT  — same value as PC_PUBLIC_KEY_FINGERPRINT
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Deploy to VPS
@@ -31,11 +37,41 @@ jobs:
           cache: "npm"
           cache-dependency-path: client/package-lock.json
 
+      # The .env on the VPS is never uploaded here (see below), so the runner
+      # has no VITE_* vars of its own. Vite inlines these at build time; without
+      # them the bundle silently loses the Google button (Login.svelte reads a
+      # missing client ID as "email-only deployment") and PC key pinning throws
+      # at runtime. Keep both secrets in sync with the VPS .env.
       - name: Build Svelte frontend
         working-directory: client
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_PC_KEY_FINGERPRINT: ${{ secrets.VITE_PC_KEY_FINGERPRINT }}
         run: |
           npm ci
           npm run build
+
+      # vite.config.js only fails on an *inconsistent* env (GOOGLE_CLIENT_ID set
+      # without VITE_GOOGLE_CLIENT_ID). It cannot fail on an empty one, because
+      # that is exactly how a legitimate email-only build looks. Only the deploy
+      # knows it is shipping production, so assert here that the values really
+      # were inlined — an unset or misnamed repo secret is otherwise silent.
+      - name: Verify build-time config was inlined
+        working-directory: client
+        env:
+          VITE_PC_KEY_FINGERPRINT: ${{ secrets.VITE_PC_KEY_FINGERPRINT }}
+        run: |
+          bundle=$(grep -o 'assets/index-[^"]*\.js' dist/index.html | head -1)
+          if [ -z "$bundle" ]; then
+            echo "::error::No entry bundle referenced by dist/index.html"; exit 1
+          fi
+          if ! grep -q 'apps\.googleusercontent\.com' "dist/$bundle"; then
+            echo "::error::VITE_GOOGLE_CLIENT_ID was not inlined into $bundle — is the repo secret set?"; exit 1
+          fi
+          if [ -z "$VITE_PC_KEY_FINGERPRINT" ] || ! grep -qF "$VITE_PC_KEY_FINGERPRINT" "dist/$bundle"; then
+            echo "::error::VITE_PC_KEY_FINGERPRINT was not inlined into $bundle — is the repo secret set?"; exit 1
+          fi
+          echo "Both build-time vars present in $bundle"
 
       # ── Upload files to VPS ──────────────────────────────────────────────────
       # Uploads:
