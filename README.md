@@ -4,8 +4,18 @@
 
 Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. Your PC connects outbound to a lightweight relay; the relay forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
+---
+
+<table>
+  <tr>
+    <td align="center"><b>Queue — Current</b><br><img src="docs/screenshots/queue-current.webp" width="220"></td>
+    <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.webp" width="220"></td>
+    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.webp" width="220"></td>
+  </tr>
+</table>
+
 <details>
-<summary><b>Screenshots</b> — login, generate, queue, vault, admin (12)</summary>
+<summary><b>Show the rest</b> — login, register, generate, vault, admin (9)</summary>
 
 <br>
 
@@ -14,11 +24,6 @@ Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, l
     <td align="center"><b>Login</b><br><img src="docs/screenshots/login.webp" width="220"></td>
     <td align="center"><b>Register</b><br><img src="docs/screenshots/register.webp" width="220"></td>
     <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.webp" width="220"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Queue — Current</b><br><img src="docs/screenshots/queue-current.webp" width="220"></td>
-    <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.webp" width="220"></td>
-    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.webp" width="220"></td>
   </tr>
   <tr>
     <td align="center"><b>Image Preview in Vault</b><br><img src="docs/screenshots/image-preview-in-vault.webp" width="220"></td>
