@@ -5,30 +5,30 @@
 Run Flux 2 on your own PC's GPU and use it from any browser — phone, tablet, laptop — without exposing a single port on your home network. Your PC connects outbound to a lightweight relay; the relay forwards encrypted blobs it cannot read. No cloud subscription. No one else processing your images.
 
 <details>
-<summary><b>Screenshots</b> — login, generate, queue, vault, admin (12)</summary>
+<summary><h2>Screenshots</h2><sub>login, generate, queue, vault, admin — 12 shots</sub></summary>
 
 <br>
 
 <table>
   <tr>
-    <td align="center"><b>Login</b><br><img src="docs/screenshots/login.png" width="220"></td>
-    <td align="center"><b>Register</b><br><img src="docs/screenshots/register.png" width="220"></td>
-    <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.png" width="220"></td>
+    <td align="center"><b>Login</b><br><img src="docs/screenshots/login.webp" width="220"></td>
+    <td align="center"><b>Register</b><br><img src="docs/screenshots/register.webp" width="220"></td>
+    <td align="center"><b>Generate</b><br><img src="docs/screenshots/submit.webp" width="220"></td>
   </tr>
   <tr>
-    <td align="center"><b>Queue — Current</b><br><img src="docs/screenshots/queue-current.png" width="220"></td>
-    <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.png" width="220"></td>
-    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.png" width="220"></td>
+    <td align="center"><b>Queue — Current</b><br><img src="docs/screenshots/queue-current.webp" width="220"></td>
+    <td align="center"><b>Configuration</b><br><img src="docs/screenshots/configuration.webp" width="220"></td>
+    <td align="center"><b>Result Preview</b><br><img src="docs/screenshots/result.webp" width="220"></td>
   </tr>
   <tr>
-    <td align="center"><b>Image Preview in Vault</b><br><img src="docs/screenshots/image-preview-in-vault.png" width="220"></td>
-    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/vault-gallery.png" width="220"></td>
-    <td align="center"><b>Result Expiring + Queued</b><br><img src="docs/screenshots/result-expiring-queued.png" width="220"></td>
+    <td align="center"><b>Image Preview in Vault</b><br><img src="docs/screenshots/image-preview-in-vault.webp" width="220"></td>
+    <td align="center"><b>Gallery</b><br><img src="docs/screenshots/vault-gallery.webp" width="220"></td>
+    <td align="center"><b>Result Expiring + Queued</b><br><img src="docs/screenshots/result-expiring-queued.webp" width="220"></td>
   </tr>
   <tr>
-    <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.png" width="220"></td>
-    <td align="center"><b>Admin — Codes</b><br><img src="docs/screenshots/admin-codes.png" width="220"></td>
-    <td align="center"><b>Admin — Users</b><br><img src="docs/screenshots/admin-users.png" width="220"></td>
+    <td align="center"><b>Vault Settings</b><br><img src="docs/screenshots/vault-settings.webp" width="220"></td>
+    <td align="center"><b>Admin — Codes</b><br><img src="docs/screenshots/admin-codes.webp" width="220"></td>
+    <td align="center"><b>Admin — Users</b><br><img src="docs/screenshots/admin-users.webp" width="220"></td>
   </tr>
 </table>
 
