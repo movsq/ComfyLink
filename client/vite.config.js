@@ -7,6 +7,18 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '../', '');
   const PORT = parseInt(env.PORT || '3000', 10);
 
+  // A missing VITE_GOOGLE_CLIENT_ID is not a build error — Login.svelte treats it
+  // as an email-only deployment and skips GSI entirely. That makes a half-configured
+  // .env fail silently: the build succeeds and ships a login page with no Google
+  // button. Only the *inconsistent* case is unambiguously wrong, so fail on that.
+  if (env.GOOGLE_CLIENT_ID && !env.VITE_GOOGLE_CLIENT_ID) {
+    throw new Error(
+      'GOOGLE_CLIENT_ID is set but VITE_GOOGLE_CLIENT_ID is not. The client build ' +
+      'inlines the latter at build time; without it the Google sign-in button never ' +
+      'renders. Set both to the same value in the repo-root .env.'
+    );
+  }
+
   return {
     plugins: [svelte()],
 

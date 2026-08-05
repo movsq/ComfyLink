@@ -976,15 +976,17 @@
   .page {
     min-height: 100dvh;
     display: flex;
-    /* `safe` matters: once the card outgrows the viewport (long queue, result
-       panel) plain `center` would overflow both ways and clip the top out of
-       scroll range. `safe center` falls back to flex-start at that point. */
-    align-items: safe center;
     justify-content: center;
     padding: 2rem 1.25rem;
   }
 
   .card {
+    /* Auto margins, not `align-items: center`, do the vertical centering: when
+       the card outgrows the viewport (long queue, result panel) the autos
+       resolve to 0 and it top-aligns, so the top never scrolls out of reach.
+       Same intent as `align-items: safe center`, but `safe` is not honoured
+       everywhere — auto margins have worked since flexbox shipped. */
+    margin: auto;
     width: 100%;
     max-width: 440px;
     background: var(--surface-hover);
