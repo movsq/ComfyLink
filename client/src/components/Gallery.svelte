@@ -314,7 +314,7 @@
 
 <style>
   .backdrop {
-    position: fixed; inset: 0; z-index: 50;
+    position: fixed; inset: 0; z-index: 60;
     background: var(--surface-backdrop);
     backdrop-filter: blur(8px);
     display: flex; align-items: flex-end; justify-content: center;
