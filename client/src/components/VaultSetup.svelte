@@ -31,6 +31,8 @@
   let recoveryBytes = $state(null);
   let saved = $state(false);
   let copyFeedback = $state(false);
+  let clipboardWarning = $state(false);
+  let clipboardClearTimer = null;
 
   // The master key to pass to parent on completion
   let masterKey = $state(null);
@@ -154,7 +156,7 @@
     error = '';
     try {
       masterKey = await generateMasterKey();
-      const masterKeyRaw = await exportMasterKey(masterKey);
+      await exportMasterKey(masterKey); // ensure exportable
       recoveryBytes = generateRecoveryKey();
 
       const pbkdf2Salt = crypto.getRandomValues(new Uint8Array(32));
@@ -187,7 +189,19 @@
   async function handleCopyWords() {
     await navigator.clipboard.writeText(recoveryWords.join(' '));
     copyFeedback = true;
+    clipboardWarning = true;
     setTimeout(() => copyFeedback = false, 2000);
+    // Best effort: on mobile the clipboard is readable by other apps and may
+    // sync across devices, so don't leave the mnemonic sitting in it. This only
+    // fires if the page is still open and still has clipboard permission.
+    if (clipboardClearTimer) clearTimeout(clipboardClearTimer);
+    clipboardClearTimer = setTimeout(async () => {
+      try {
+        await navigator.clipboard.writeText('');
+      } catch {
+        // no-op — page may be backgrounded or permission revoked
+      }
+    }, 60_000);
   }
 
   function handleDownloadJSON() {
@@ -197,8 +211,14 @@
     const a = document.createElement('a');
     a.href = url;
     a.download = 'comfylink-recovery.json';
+    // Firefox cancels the download if the anchor is detached or the URL is
+    // revoked in the same turn as the click — append, click, tear down next tick.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, 0);
   }
 
   function handleContinue() {
@@ -206,6 +226,7 @@
     password = '';
     confirmPassword = '';
     recoveryBytes = null;
+    recoveryWords = [];
     onComplete(masterKey);
   }
 </script>
@@ -341,6 +362,10 @@
         </button>
       </div>
 
+      {#if clipboardWarning}
+        <p class="clipboard-hint">Paste it somewhere safe, then clear your clipboard — other apps can read it. We try to clear it automatically after a minute.</p>
+      {/if}
+
       <label class="checkbox-row">
         <input type="checkbox" bind:checked={saved} />
         <span class="checkbox-label">I've saved my recovery key</span>
@@ -431,6 +456,11 @@
     font-size: 0.75rem; color: var(--text-secondary); line-height: 1.6; margin: 0;
   }
   .desc strong { color: var(--text-primary); }
+
+  .clipboard-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; color: var(--text-muted); line-height: 1.55; margin: 0;
+  }
 
   .methods {
     display: flex; flex-direction: column; gap: 0.75rem;

@@ -92,6 +92,7 @@
       }
 
       if (data.token) {
+        googleIdToken = null; // no longer needed — don't keep the ID token in state
         onLogin(data.token, data.user);
         return;
       }
@@ -113,6 +114,7 @@
     try {
       const data = await loginWithGoogle(googleIdToken, inviteCode.trim());
       if (data.token) {
+        googleIdToken = null; // no longer needed — don't keep the ID token in state
         onLogin(data.token, data.user);
         return;
       }
@@ -139,6 +141,7 @@
       const data = await loginWithGoogle(googleIdToken, googleInviteCode.trim());
       if (data.token) {
         showGoogleInvitePopup = false;
+        googleIdToken = null; // no longer needed — don't keep the ID token in state
         onLogin(data.token, data.user);
         return;
       }

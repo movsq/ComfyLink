@@ -25,6 +25,7 @@
     loading = true;
     error = '';
     try {
+      if (typeof vaultInfo.prfSalt !== 'string') throw new Error('Vault is missing its PRF salt');
       const prfSalt = b64ToBuf(vaultInfo.prfSalt);
       const prfOutput = await authenticateWithPRF(vaultInfo.prfCredentialId, prfSalt);
       const wrappingKey = await deriveKeyFromPRF(prfOutput, prfSalt);
@@ -54,6 +55,7 @@
       const wrappedBuf = b64ToBuf(encryptedMasterKey);
       const masterKey = await unwrapMasterKey(wrappedBuf, wrappingKey);
 
+      password = ''; // don't keep the vault password in component state
       onUnlocked(masterKey);
     } catch (err) {
       error = 'Wrong password or unlock failed';
