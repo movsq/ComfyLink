@@ -12,11 +12,23 @@ const ACCESS_CODES_ENABLED = process.env.ACCESS_CODES_ENABLED !== 'false';
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+// Google login is only usable when a client ID is configured. Without one we
+// cannot enforce the `aud` claim (google-auth-library skips the comparison
+// entirely when `audience` is undefined), which would turn /auth/google into a
+// login oracle accepting ID tokens issued to ANY Google application. So the
+// feature is switched off rather than left running unchecked.
+let googleLoginEnabled = !!GOOGLE_CLIENT_ID;
+
+export function isGoogleLoginEnabled() {
+  return googleLoginEnabled;
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export function initAuth() {
-  if (!GOOGLE_CLIENT_ID) {
-    console.warn('[auth] WARNING: GOOGLE_CLIENT_ID is not set. Google OAuth will fail.');
+  googleLoginEnabled = !!GOOGLE_CLIENT_ID;
+  if (!googleLoginEnabled) {
+    console.warn('[auth] WARNING: GOOGLE_CLIENT_ID is not set — Google login is DISABLED. /auth/google and the Google vault step-up return 503. Set GOOGLE_CLIENT_ID to enable it.');
   }
   if (!JWT_SECRET) {
     throw new Error('[auth] JWT_SECRET must be set in .env');
@@ -30,11 +42,24 @@ export function initAuth() {
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 
 export async function verifyGoogleToken(idToken) {
+  // Never reach verifyIdToken with an undefined audience — the library skips the
+  // `aud` comparison in that case and would accept a token minted for any other
+  // Google application. Callers should check isGoogleLoginEnabled() first and
+  // return 503; this throw is the backstop.
+  if (!GOOGLE_CLIENT_ID) {
+    throw new Error('[auth] Google login is disabled (GOOGLE_CLIENT_ID is not set)');
+  }
   const ticket = await googleClient.verifyIdToken({
     idToken,
     audience: GOOGLE_CLIENT_ID,
   });
   const payload = ticket.getPayload();
+  // The library checks `iss` and (given an audience) `aud`, but not this one.
+  // An unverified address may belong to someone else entirely, and we key
+  // account matching on the email for the email-auth collision checks.
+  if (!payload || payload.email_verified !== true) {
+    throw new Error('[auth] Google token rejected: email_verified is not true');
+  }
   return {
     sub: payload.sub,
     email: payload.email,
