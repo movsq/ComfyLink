@@ -74,13 +74,17 @@ python keygen.py
 This creates `private_key.pem` and `public_key.pem` in `pc-client/`, and prints a `PC_PUBLIC_KEY_FINGERPRINT=...` line. You can optionally encrypt the private key with a passphrase when prompted.
 
 - **Copy the `PC_PUBLIC_KEY_FINGERPRINT` line into `.env`** — required for Tier 2 (VPS), optional but recommended for Tier 1. It pins the PC's identity so a compromised relay can't substitute a different worker.
-- **Back up `private_key.pem`.** Losing it means any vault results encrypted to this key are unrecoverable.
+- **Back up `private_key.pem`** if you'd rather not redo this step. Losing it does **not** cost you any saved results — vault blobs are encrypted with a master key that only ever exists in your browser, and the PC key is used solely for the per-job handshake. Losing it means re-running `keygen.py` and updating both `PC_PUBLIC_KEY_FINGERPRINT` and `VITE_PC_KEY_FINGERPRINT` in `.env` (and rebuilding the frontend).
 
 ### 5. Install ComfyUI models and custom nodes
 
 See [ComfyUI-Workflow/README.md](ComfyUI-Workflow/README.md) for required model files and custom node packs.
 
 > **Port note:** The pc-client connects to ComfyUI at `COMFYUI_URL` in your `.env` (default `http://127.0.0.1:8188`). Match this to **Settings → Server-Config → Port** in ComfyUI.
+
+> **Set `COMFYUI_INPUT_DIR`.** Reference images are decrypted on your PC and uploaded to ComfyUI's `input/` directory. Point `COMFYUI_INPUT_DIR` at that directory (or set `COMFYUI_PATH` to your ComfyUI checkout and its `input/` is used automatically) and the pc-client deletes each job's own uploads as soon as the job ends. Leave it unset and every reference image you and your invited users ever submit stays on the GPU machine in plaintext — the pc-client warns about this at startup.
+
+> **Restricting models.** `ALLOWED_GGUF`, `ALLOWED_CLIP` and `ALLOWED_LORA` (comma-separated filenames) are the allow-lists the pc-client enforces on the model, CLIP and LoRA names a client asks for. The defaults cover everything the UI offers; extend them if you add model files of your own. Because job payloads are end-to-end encrypted, the relay cannot check these — the pc-client is the only enforcement point.
 
 > **Recommended ComfyUI launch flags** (privacy + stealth):
 > ```
@@ -108,7 +112,7 @@ Open the URL Vite prints (typically `http://localhost:5173`) and sign in with Go
 > **Invite codes are required by default.** Registration (Google or e-mail) needs a `KLEIN-XXXX-XXXX` code. You'll generate one for yourself in Step 7. To allow open registration instead, set `INVITE_REQUIRED=false` in `.env`.
 
 > **Troubleshooting:**
-> - **No GPU?** Edit `pc-client/main.py` to import from `comfyui_mock` instead of `comfyui` — you'll get tinted placeholder images instead of real ones, useful for UI testing.
+> - **No GPU?** In `pc-client/main.py`, change `from comfyui import process_job, interrupt_comfyui, generate_thumbnail` to `from comfyui_mock import …` — you'll get tinted placeholder images instead of real ones, useful for UI testing. ComfyUI itself doesn't need to be running.
 > - **PC bridge can't connect?** Run `python pc-client/check_env.py` to verify `PC_SECRET` matches between `.env` and what the bridge is loading.
 
 ### 7. Promote the first admin
@@ -157,6 +161,8 @@ Uncomment `tls internal` in `Caddyfile` to fall back on Caddy's self-signed cert
 ```
 
 Desktop browsers can be told to trust the self-signed cert. **Most mobile browsers will warn or block it** — for phone access, enabling Tailscale HTTPS Certificates is strongly recommended.
+
+The pc-client needs `SKIP_TLS_VERIFY=true` in `.env` to accept a self-signed cert. **Only set it when the relay is reached through an already-authenticated tunnel such as Tailscale, never over the public internet** — with verification off, an active man-in-the-middle on the `wss://` connection reads `PC_SECRET` in the clear and can impersonate your PC to the relay. Inside a Tailscale tunnel, WireGuard has already authenticated both ends, so the TLS check is redundant rather than load-bearing.
 
 ---
 

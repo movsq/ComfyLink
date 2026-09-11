@@ -14,7 +14,6 @@ Environment variables (or edit config.py):
 """
 
 import asyncio
-import base64
 import json
 import logging
 import ssl
@@ -112,9 +111,19 @@ async def handle_message(ws, raw: str) -> None:
 
     if msg_type == "job":
         global _job_task
-        # Cancel any previous job task before starting a new one
+        # Stop any previous job before starting a new one. Cancelling the Python
+        # task alone leaves the prompt generating inside ComfyUI, so a relay that
+        # fires jobs back to back would pile up GPU work indefinitely — interrupt
+        # ComfyUI first, then wait briefly for the old task to unwind.
         if _job_task and not _job_task.done():
+            log.warning("[job] New job while one is in flight — interrupting the previous one.")
+            _current_job_cancelled.set()
+            await interrupt_comfyui()
             _job_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_job_task), timeout=2)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
         _job_task = asyncio.create_task(handle_job(ws, msg))
     elif msg_type == "cancel":
         await handle_cancel(msg)
@@ -180,12 +189,15 @@ async def handle_job(ws, msg: dict) -> None:
             log.info(f"[job {job_id}] Cancelled — skipping result.")
             return
 
-        # ── Generate thumbnail ────────────────────────────────────────────────
-        thumbnail_b64: str | None = None
+        # ── Generate + encrypt thumbnail ──────────────────────────────────────
+        # The thumbnail is encrypted with the same per-job result key as the full
+        # image (its own fresh IV), so the relay never sees it in plaintext — it
+        # forwards an opaque blob and only the phone can decrypt it.
+        encrypted_thumbnail: str | None = None
         try:
             loop = asyncio.get_event_loop()
             thumb_bytes = await loop.run_in_executor(None, generate_thumbnail, result_bytes)
-            thumbnail_b64 = base64.b64encode(thumb_bytes).decode()
+            encrypted_thumbnail = encrypt_result(result_aes_key, thumb_bytes)
             log.info(f"[job {job_id}] Thumbnail generated ({len(thumb_bytes):,} bytes).")
         except Exception as exc:
             log.warning(f"[job {job_id}] Thumbnail generation failed (non-fatal): {exc}")
@@ -194,9 +206,10 @@ async def handle_job(ws, msg: dict) -> None:
         encrypted_result = encrypt_result(result_aes_key, result_bytes)
 
         # ── Send back ─────────────────────────────────────────────────────────
+        # Both fields are [12-byte IV][ciphertext+tag] base64 under the result key.
         result_msg: dict = {"type": "result", "jobId": job_id, "payload": encrypted_result}
-        if thumbnail_b64:
-            result_msg["thumbnail"] = thumbnail_b64
+        if encrypted_thumbnail:
+            result_msg["thumbnail"] = encrypted_thumbnail
         await ws.send(json.dumps(result_msg))
         log.info(f"[job {job_id}] Result sent.")
 
@@ -211,6 +224,13 @@ async def handle_job(ws, msg: dict) -> None:
             await ws.send(json.dumps({"type": "error", "jobId": job_id, "message": safe_msg}))
         except Exception:
             pass  # don't let error reporting crash the client
+    finally:
+        # Clear the marker once this job is over. Left set, a late cancel for an
+        # already-finished job would match and interrupt whatever ComfyUI is doing
+        # next — including work the operator started by hand in the ComfyUI UI.
+        # Guarded on equality so a newer job's id is never clobbered.
+        if _current_job_id == job_id:
+            _current_job_id = None
 
 
 async def main() -> None:

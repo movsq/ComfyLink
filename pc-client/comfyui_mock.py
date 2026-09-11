@@ -1,26 +1,26 @@
 """
-comfyui_mock.py — Mock ComfyUI job processor.
+comfyui_mock.py — Mock ComfyUI job processor (no GPU required).
 
-This module stands in for the real ComfyUI integration until you set up
-ComfyUI on your PC and are ready to wire it in.
+Drop-in stand-in for `comfyui.py` for UI testing without ComfyUI installed.
+In `main.py`, change
+
+    from comfyui import process_job, interrupt_comfyui, generate_thumbnail
+to
+    from comfyui_mock import process_job, interrupt_comfyui, generate_thumbnail
+
+This module therefore mirrors `comfyui.py`'s public surface exactly —
+`process_job` takes the same keyword arguments, and `interrupt_comfyui` /
+`generate_thumbnail` exist so the import above resolves.
 
 The mock:
-  - Accepts image bytes and a prompt string
   - Waits a random delay to simulate GPU processing time (2–5 seconds)
-  - Returns a slightly modified version of the input image (tinted purple)
-    so you can verify the full encrypted round-trip is working
-
-When you're ready to implement the real ComfyUI integration, replace the
-body of `process_job()` with your actual ComfyUI HTTP/WebSocket calls.
-The function signature should stay the same:
-    async def process_job(image_bytes: bytes, prompt: str) -> bytes
-
-Real implementation will roughly:
-  1. POST the workflow JSON to http://127.0.0.1:8188/prompt
-  2. Open a WebSocket to ws://127.0.0.1:8188/ws?clientId=<id>
-  3. Wait for execution_complete message
-  4. GET the output image from http://127.0.0.1:8188/view?filename=...
-  5. Return the image bytes
+  - Returns a slightly modified version of image1 (tinted purple), or image1
+    unchanged if it isn't a simple PNG, so you can verify the full encrypted
+    round-trip is working
+  - Ignores seed / sampler / LoRA / model selection entirely; `steps` is used
+    only to pace the fake progress callbacks
+  - Never logs prompt text: this is the one module that could, and it must not
+    become the default path.
 """
 
 import asyncio
@@ -29,24 +29,78 @@ import random
 import struct
 
 
-async def process_job(image_bytes: bytes, prompt: str) -> bytes:
+async def process_job(
+    prompt: str,
+    image1: bytes | None,
+    image2: bytes | None,
+    seed: int,
+    steps: int,
+    sampler: str,
+    progress_callback=None,
+    lora: str | None = None,
+    lora_strength: float = 1.0,
+    gguf_name: str | None = None,
+    clip_model: str | None = None,
+) -> bytes:
     """
     Mock job processor. Returns a placeholder image after a fake delay.
 
-    Args:
-        image_bytes: Raw input image bytes (PNG/JPEG/etc.)
-        prompt:      Text prompt (currently unused in the mock)
+    Signature mirrors comfyui.process_job so the two are interchangeable.
+    Only image1 is used; the generation parameters are accepted and ignored.
 
     Returns:
-        Raw image bytes of the "result" (mock: input image tinted purple)
+        Raw image bytes of the "result" (mock: image1 tinted purple)
     """
     delay = random.uniform(2.0, 5.0)
-    print(f"[mock] Processing job (prompt: {prompt[:60]!r}, delay: {delay:.1f}s)…")
-    await asyncio.sleep(delay)
+    print(f"[mock] Processing job (prompt: ***, steps: {steps}, delay: {delay:.1f}s)…")
 
-    result_bytes = _tint_image(image_bytes)
+    # Fake a progress bar so the phone's UI path is exercised too
+    if progress_callback:
+        for step in range(1, steps + 1):
+            await asyncio.sleep(delay / max(steps, 1))
+            try:
+                await progress_callback(step, steps, "mock")
+            except Exception:
+                pass  # never let progress reporting crash the job
+    else:
+        await asyncio.sleep(delay)
+
+    result_bytes = _tint_image(image1) if image1 else _placeholder_png()
     print(f"[mock] Job done. Returning {len(result_bytes)} bytes.")
     return result_bytes
+
+
+def _placeholder_png() -> bytes:
+    """Solid purple PNG for text-only jobs, where there is no input to tint."""
+    from PIL import Image  # local import — see generate_thumbnail
+
+    buf = io.BytesIO()
+    Image.new("RGB", (768, 768), (128, 0, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def interrupt_comfyui() -> None:
+    """No-op stand-in for comfyui.interrupt_comfyui — nothing to interrupt."""
+    print("[mock] Interrupt requested (no-op).")
+
+
+def generate_thumbnail(image_bytes: bytes, max_width: int = 200) -> bytes:
+    """
+    Mirror of comfyui.generate_thumbnail: 200px-wide WebP from raw image bytes.
+
+    Pillow is imported lazily so the rest of this module stays dependency-free;
+    if it is unavailable the caller treats the failure as non-fatal and simply
+    sends no thumbnail.
+    """
+    from PIL import Image  # local import — keeps the module importable without Pillow
+
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.thumbnail((max_width, max_width), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=75)
+    return buf.getvalue()
 
 
 def _tint_image(image_bytes: bytes) -> bytes:

@@ -32,6 +32,11 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `GGUF_MODEL` | `flux-2-klein-9b-Q4_K_M.gguf` | Default diffusion model used when none is sent by the client. |
 | `DB_PATH` | `<repo-root>/data/comfylink.db` | Path to the SQLite database file (server). Resolved relative to `server/src` when not set; the built-in default points to `data/comfylink.db` at the repo root. |
 | `SKIP_TLS_VERIFY` | `false` | Skip TLS verification (use only for Tailscale / self-signed certs). |
+| `COMFYUI_INPUT_DIR` | *(unset)* | ComfyUI's `input/` directory. The pc-client deletes each job's own uploaded reference images from it when the job ends (any exit path). If unset, `COMFYUI_PATH/input` is used when it exists; otherwise cleanup is skipped and decrypted reference images stay on the GPU machine in plaintext (warned once at startup). |
+| `COMFYUI_PATH` | *(unset)* | Path to the ComfyUI checkout. Only used to derive `COMFYUI_INPUT_DIR` when that is not set explicitly. |
+| `ALLOWED_GGUF` | the 6 diffusion models the client dropdown offers, plus `flux-2-klein-9b-Q8_0.gguf` | Comma-separated allow-list of diffusion model filenames a client may request. Job payloads are end-to-end encrypted, so the pc-client is the only place this can be enforced. |
+| `ALLOWED_CLIP` | `Qwen_Qwen3-8B-Q4_K_M.gguf,Qwen3-8B-Q4_K_M.gguf,Qwen3-8B-Q4_K_M_v2.gguf` | Comma-separated allow-list of CLIP model filenames a client may request. |
+| `ALLOWED_LORA` | `lora1.safetensors,lora2.safetensors` | Comma-separated allow-list of LoRA filenames a client may request (`none` always means no LoRA). |
 | `PRIVATE_KEY_PATH` | `private_key.pem` | Path to the PC's private key PEM (typically `pc-client/private_key.pem` when launching from repo root). |
 | `PUBLIC_KEY_PATH` | `public_key.pem` | Path to the PC's public key PEM (typically `pc-client/public_key.pem` when launching from repo root). |
 | `PC_PUBLIC_KEY_FINGERPRINT` | *(unset)* | SHA-256 hex fingerprint of the PC public key (from `keygen.py`). **Required** when `DEPLOY_MODE=remote`; optional in local mode. When set, the server rejects mismatched `pubkey` messages from `/ws/pc`. |

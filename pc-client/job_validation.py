@@ -8,6 +8,12 @@ MIN_SEED = 0
 # avoids float-precision issues in the browser's increment path.
 MAX_SEED = 2**32 - 1
 
+# LoraLoader accepts any float, but anything outside this range is either a
+# no-op or destroys the image — clamp rather than reject so a slightly
+# out-of-range slider value still produces a picture.
+MIN_LORA_STRENGTH = 0.0
+MAX_LORA_STRENGTH = 2.0
+
 
 def _validate_int_range(value, field: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
@@ -25,3 +31,18 @@ def validate_seed(value) -> int:
 def validate_steps(value) -> int:
     """Validate the supported Flux2 scheduler step range."""
     return _validate_int_range(value, "steps", MIN_STEPS, MAX_STEPS)
+
+
+def validate_lora_strength(value) -> float:
+    """Validate a LoRA strength and clamp it into 0..2.
+
+    Rejects bool and non-numeric input outright (a string here would reach
+    ComfyUI as-is), then clamps. NaN is rejected because it compares false
+    against both bounds and would slip through the clamp unchanged.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Invalid loraStrength: must be a number")
+    strength = float(value)
+    if strength != strength:  # NaN
+        raise ValueError("Invalid loraStrength: must be a number")
+    return max(MIN_LORA_STRENGTH, min(MAX_LORA_STRENGTH, strength))
