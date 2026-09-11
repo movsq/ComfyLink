@@ -1,6 +1,7 @@
 <script>
   import { acceptTos, getTos } from '../lib/api.js';
   import DOMPurify from 'dompurify';
+  import { dialog } from './dialog.js';
 
   let { token, isCodeUser = false, viewOnly = false, onAccepted, onDeclined } = $props();
 
@@ -60,7 +61,17 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) onDeclined(); }}>
+<!-- Backdrop click and Escape dismiss only in view-only mode. A pending acceptance
+     must be answered with a button: dismissing it used to leave code users, whose
+     acceptance the server cannot check, generating without ever accepting. -->
+<div
+  class="backdrop"
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+  use:dialog={{ onEscape: viewOnly ? onDeclined : () => {} }}
+  onclick={(e) => { if (viewOnly && e.target === e.currentTarget) onDeclined(); }}
+>
   <div class="panel">
     <div class="handle"></div>
 

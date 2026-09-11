@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { getPCPublicKey } from '../lib/api.js';
   import {
     generateEphemeralKeyPair,
@@ -8,9 +9,11 @@
     encryptPayload,
     exportEphemeralPublicKey,
     encodeJobPayload,
+    bufToB64,
   } from '../lib/crypto.js';
+  import { dialog } from './dialog.js';
 
-  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null, wsConnected = false, wsInitializing = false, onRegisterInputSetter = () => {} } = $props();
+  let { token, ws, onJobSubmitted, onCancel = () => {}, seed = $bindable(), seedMode = $bindable(), onNewJob, isAdmin = false, onOpenAdmin, showGalleryBtn = false, onOpenGallery, showVaultSettingsBtn = false, onOpenVaultSettings, codeUsesRemaining = null, userUsesRemaining = null, queueState = { queue: [], activeJobId: null, avgDuration: 60 }, pendingJobs = new Map(), dismissedResults = [], clockNow = Date.now(), onReopenDismissed = null, wsConnected = false, wsInitializing = false, onRegisterInputSetter = () => {}, tosAccepted = true } = $props();
 
   let codeDepleted = $derived(codeUsesRemaining !== null && codeUsesRemaining === 0);
   let userDepleted = $derived(userUsesRemaining !== null && userUsesRemaining === 0);
@@ -41,6 +44,15 @@
   let configOpen = $state(false);
   let cfgBodyEl = $state(null);
   let cfgScrolledNearBottom = $state(false);
+
+  function closeConfig() {
+    configOpen = false;
+    seedModeOpen = false;
+    samplerOpen = false;
+    loraOpen = false;
+    quantizationOpen = false;
+    clipModelOpen = false;
+  }
 
   // ── Drag state ────────────────────────────────────────────────────────
   let dragOverSlot = $state(0);       // 0=none, 1=slot1, 2=slot2
@@ -123,7 +135,9 @@
     const offs = [];
 
     offs.push(ws.on('progress', ({ jobId, value, max }) => {
-      // Only track progress for the active job
+      // Only track progress for the active job. A payload with no jobId cannot be
+      // attributed, so it must not mutate local progress state.
+      if (!jobId) return;
       if (queueState.activeJobId && jobId !== queueState.activeJobId) return;
       if (_trackingJobId !== jobId) {
         // New job started processing — reset progress
@@ -190,6 +204,45 @@
     imagePreviewUrl2 = URL.createObjectURL(file);
   }
 
+  // 20 MiB per reference image. Two of these still fit comfortably inside the
+  // relay's payload ceiling once base64 expansion is accounted for.
+  const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+  const MAX_IMAGE_LABEL = '20 MB';
+
+  // Sniff the real format from the leading bytes. file.type is browser-declared
+  // and is trivially wrong; same magic-byte table as Result.svelte's sniffImage.
+  async function isSupportedImage(file) {
+    try {
+      const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+      if (head.length >= 8 &&
+          head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47) return true; // PNG
+      if (head.length >= 3 &&
+          head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) return true;                      // JPEG
+      if (head.length >= 12 &&
+          head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+          head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50) return true; // WebP
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Validate a user-supplied file, then place it in a slot. */
+  async function acceptFile(file, slot) {
+    if (!file) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      error = `Image is too large — ${MAX_IMAGE_LABEL} max per reference image.`;
+      return;
+    }
+    if (!(await isSupportedImage(file))) {
+      error = 'Unsupported image — use PNG, JPEG or WebP.';
+      return;
+    }
+    error = '';
+    if (slot === 2) setSlot2(file);
+    else setSlot1(file);
+  }
+
   function normalizeBytes(bytes) {
     if (!bytes) return null;
     if (bytes instanceof Uint8Array) return bytes;
@@ -242,15 +295,13 @@
 
   function handleFileChange1(e) {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    setSlot1(file);
     e.target.value = '';
+    acceptFile(file, 1);
   }
   function handleFileChange2(e) {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    setSlot2(file);
     e.target.value = '';
+    acceptFile(file, 2);
   }
   function clearImage1() {
     if (imagePreviewUrl1) URL.revokeObjectURL(imagePreviewUrl1);
@@ -287,10 +338,8 @@
     cardDragActive = false;
     dragOverSlot = 0;
     const file = e.dataTransfer.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    if (!imageFile1) setSlot1(file);
-    else if (!imageFile2) setSlot2(file);
-    else setSlot1(file);
+    if (!file) return;
+    acceptFile(file, !imageFile1 ? 1 : (!imageFile2 ? 2 : 1));
   }
 
   // ── Drag-and-drop: per-slot ───────────────────────────────────────────
@@ -326,9 +375,8 @@
       return;
     }
     const file = e.dataTransfer.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    if (slot === 1) setSlot1(file);
-    else setSlot2(file);
+    if (!file) return;
+    acceptFile(file, slot);
   }
 
   // ── Internal slot drag (swap) ─────────────────────────────────────────
@@ -358,14 +406,17 @@
 
   async function fileToBase64(file) {
     if (!file) return null;
-    const buf = await file.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
+    // Chunked conversion — a byte-at-a-time loop froze the UI thread on
+    // camera-roll-sized originals.
+    return bufToB64(new Uint8Array(await file.arrayBuffer()));
   }
 
   function validateIntegerRange(value, label, min, max) {
+    // A cleared <input type="number"> binds to null, and Number(null) is 0 —
+    // an in-range integer — so a blank seed would silently submit as seed 0.
+    if (value === null || value === undefined || value === '') {
+      throw new Error(`${label} is required — enter an integer from ${min} to ${max}.`);
+    }
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
       throw new Error(`${label} must be an integer from ${min} to ${max}.`);
@@ -374,10 +425,17 @@
   }
 
   // ── Submit ────────────────────────────────────────────────────────────
+  const SUBMIT_ACK_TIMEOUT_MS = 15_000;
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!wsConnected) {
       error = 'Connection is offline. Wait for reconnect, then retry.';
+      return;
+    }
+    // The server skips the ToS check for code users, so this is their only gate.
+    if (!tosAccepted) {
+      error = 'Accept the Terms of Service before generating.';
       return;
     }
     if (!prompt.trim() || status !== 'idle' || queueFull) return;
@@ -405,10 +463,20 @@
       const ephPubKeyBytes = await exportEphemeralPublicKey(ephKeyPair.publicKey);
       const payload = encodeJobPayload(ephPubKeyBytes, iv, ciphertext);
 
-      // Capture form state at submit time for queue preview display
+      // Capture form state at submit time for queue preview display.
+      // The queue row gets its OWN object URLs — sharing the live input previews
+      // meant clearing or replacing an input slot killed the queued row's
+      // thumbnail. App owns these from onJobSubmitted onward and revokes them
+      // when the job leaves its pendingJobs map.
       const capturedPromptText = prompt.trim();
-      const capturedPreview1 = imagePreviewUrl1;
-      const capturedPreview2 = imagePreviewUrl2;
+      const capturedPreview1 = imageFile1 ? URL.createObjectURL(imageFile1) : null;
+      const capturedPreview2 = imageFile2 ? URL.createObjectURL(imageFile2) : null;
+      let previewsHandedOff = false;
+      function releaseCapturedPreviews() {
+        if (previewsHandedOff) return;
+        if (capturedPreview1) URL.revokeObjectURL(capturedPreview1);
+        if (capturedPreview2) URL.revokeObjectURL(capturedPreview2);
+      }
 
       // A per-submit token disambiguates the `queued` ack when multiple submits
       // are in flight on the same socket. Without it, both submissions' one-shot
@@ -419,30 +487,41 @@
       // Listen for the queued response to capture jobId.
       // Also register sibling listeners for error/no_pc so the one-shot offQueued
       // handler is always cleaned up, even when the server rejects the submit.
-      let offError, offNoPc;
+      let offError, offNoPc, ackTimer = null;
       function cleanup() {
         if (offQueued) { offQueued(); offQueued = null; }
         if (offError)  { offError();  offError  = null; }
         if (offNoPc)   { offNoPc();   offNoPc   = null; }
+        if (ackTimer)  { clearTimeout(ackTimer); ackTimer = null; }
       }
+      // The server drops duplicate submits without replying, which would leave
+      // these one-shot listeners — and the AES key they close over — registered
+      // for the life of the socket.
+      ackTimer = setTimeout(() => {
+        cleanup();
+        releaseCapturedPreviews();
+        error = 'No response from server — the job was not queued. Try again.';
+      }, SUBMIT_ACK_TIMEOUT_MS);
       offQueued = ws.on('queued', (msg) => {
         // Only act on the ack for THIS submit. Older servers that don't echo
         // clientToken still work for the single-in-flight case because the
         // listener is unregistered immediately on first match.
         if (msg.clientToken && msg.clientToken !== clientToken) return;
         cleanup();
+        previewsHandedOff = true;
         onJobSubmitted({ aesKey, jobId: msg.jobId, promptText: capturedPromptText, preview1: capturedPreview1, preview2: capturedPreview2 });
         // Advance seed for next submission
         if (seedMode === 'randomize') seed = Math.floor(Math.random() * 2 ** 32);
         else if (seedMode === 'increment') seed = Math.min(MAX_SEED, seed + 1);
         else if (seedMode === 'decrement') seed = Math.max(MIN_SEED, seed - 1);
       });
-      offError = ws.on('error', cleanup);
-      offNoPc  = ws.on('no_pc', cleanup);
+      const abandon = () => { cleanup(); releaseCapturedPreviews(); };
+      offError = ws.on('error', abandon);
+      offNoPc  = ws.on('no_pc', abandon);
 
       const sent = ws.send({ type: 'submit', payload, clientToken });
       if (!sent) {
-        cleanup();
+        abandon();
         throw new Error('WebSocket is not connected');
       }
       // Return to idle immediately so user can queue more jobs
@@ -454,6 +533,13 @@
       setTimeout(() => { if (status === 'error') status = 'idle'; }, 3000);
     }
   }
+
+  // Input previews are owned by this component for its whole lifetime — release
+  // them on unmount (logout) as well as on replace/clear.
+  onDestroy(() => {
+    if (imagePreviewUrl1) URL.revokeObjectURL(imagePreviewUrl1);
+    if (imagePreviewUrl2) URL.revokeObjectURL(imagePreviewUrl2);
+  });
 
   function handleCancelJob(jobId) {
     const sent = ws.send({ type: 'cancel', jobId });
@@ -474,6 +560,7 @@
     aria-modal="true"
     aria-label="Configuration"
     tabindex="-1"
+    use:dialog={closeConfig}
     onclick={(e) => { if (e.target === e.currentTarget) { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; clipModelOpen = false; } }}
   >
     <div class="cfg-panel" use:clickOutside={() => { configOpen = false; seedModeOpen = false; samplerOpen = false; loraOpen = false; quantizationOpen = false; clipModelOpen = false; }}>
@@ -864,7 +951,7 @@
 
       <!-- Generate row -->
       <div class="generate-row">
-        <button type="submit" class="btn-generate" class:btn-queue-full={queueFull} class:btn-processing={status === 'encrypting'} disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted || queueFull || !wsConnected}>
+        <button type="submit" class="btn-generate" class:btn-queue-full={queueFull} class:btn-processing={status === 'encrypting'} disabled={!prompt.trim() || status === 'encrypting' || codeDepleted || userDepleted || queueFull || !wsConnected || !tosAccepted}>
           {#if status === 'encrypting'}
             PROCESSING…
           {:else if !wsConnected}

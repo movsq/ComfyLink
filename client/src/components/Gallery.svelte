@@ -1,6 +1,8 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { listResults, getResultFull, deleteResult } from '../lib/api.js';
   import { decryptBlob, b64ToBuf } from '../lib/vault-crypto.js';
+  import { dialog } from './dialog.js';
 
   let { token, masterKey, onClose, onUseAsInput = null } = $props();
 
@@ -29,6 +31,15 @@
 
   $effect(() => {
     loadInitial();
+  });
+
+  // Every object URL here wraps decrypted plaintext — release them all when the
+  // gallery closes rather than letting them live for the lifetime of the tab.
+  onDestroy(() => {
+    for (const r of items) {
+      if (r?._thumbUrl) URL.revokeObjectURL(r._thumbUrl);
+    }
+    if (viewUrl) URL.revokeObjectURL(viewUrl);
   });
 
   async function loadInitial() {
@@ -94,6 +105,9 @@
     const id = items[index].id;
     viewingId = id;
     viewIndex = index;
+    // Prev/Next re-enter here — release the previous full-size image first,
+    // otherwise each step leaks a decrypted copy.
+    if (viewUrl) URL.revokeObjectURL(viewUrl);
     viewUrl = null;
     viewBytes = null;
     viewLoading = true;
@@ -186,7 +200,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+<div class="backdrop" role="dialog" aria-modal="true" tabindex="-1" use:dialog={onClose} onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
   <div class="panel">
     <div class="handle"></div>
 
@@ -229,7 +243,7 @@
 <!-- Full image viewer overlay -->
 {#if viewingId !== null}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-  <div class="view-backdrop" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) closeView(); }}>
+  <div class="view-backdrop" role="dialog" aria-modal="true" tabindex="-1" use:dialog={closeView} onclick={(e) => { if (e.target === e.currentTarget) closeView(); }}>
     <div class="view-panel">
       <div class="view-modal-header">
         <span class="view-modal-label">VAULT</span>

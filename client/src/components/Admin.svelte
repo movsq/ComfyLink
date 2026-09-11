@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { dialog } from './dialog.js';
   import { generateCode, listCodes, deleteCode, updateCode, listUsers, updateUserStatus, updateUserUses } from '../lib/api.js';
 
   let { token, onClose, accessCodesEnabled = true } = $props();
@@ -357,6 +358,7 @@
   aria-modal="true"
   aria-label="Admin Panel"
   tabindex="-1"
+  use:dialog={onClose}
   onclick={(e) => { if (e.target === e.currentTarget) onClose(); }}
 >
   <div class="admin-panel" use:clickOutside={onClose}>
