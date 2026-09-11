@@ -71,7 +71,7 @@ Don't start Docker yet — pick a deploy method below (automated or manual), the
 
 Push to `main` → GitHub Actions builds the Svelte frontend, uploads everything to your VPS, and restarts Docker.
 
-**Add these 4 secrets to your repo** (Settings → Secrets and variables → Actions):
+**Add these 5 secrets to your repo** (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 |--------|-------|
@@ -79,6 +79,22 @@ Push to `main` → GitHub Actions builds the Svelte frontend, uploads everything
 | `VPS_USER` | SSH username (e.g. `root`) |
 | `SSH_PRIVATE_KEY` | Private SSH key authorised to log in to the VPS |
 | `VPS_PATH` | Deployment directory on the VPS (e.g. `/root/flux2-9b-klein-remote`) |
+| `VPS_FINGERPRINT` | SHA256 host-key fingerprint of the VPS (see below) |
+
+`VPS_FINGERPRINT` pins the VPS's SSH host key on every upload and restart step.
+GitHub runners are ephemeral, so without it every deploy is a first connection
+that accepts whatever host key answers — and whoever answers receives your SSH
+key's authentication attempt and the whole deployment. Get the value once, from
+a machine you trust:
+
+```bash
+ssh-keyscan -t ed25519 your-hostname.example.com | ssh-keygen -lf -
+```
+
+That prints something like `256 SHA256:abc123…xyz your-host (ED25519)`. The
+secret's value is the **`SHA256:…` field**, copied verbatim, nothing else. Update
+the secret if you ever rebuild the VPS or regenerate its host keys — the deploy
+will fail loudly until you do, which is the point.
 
 Then push:
 
@@ -125,6 +141,56 @@ PC_PUBLIC_KEY_FINGERPRINT=<same value as VPS .env>
 ```
 
 Then start the pc-client (`cd pc-client && python main.py`). It connects outbound over WSS to your VPS — no port-forwarding on your home network needed.
+
+---
+
+## Backups
+
+**Read this before your first real user saves anything.** The SQLite database in
+the `server_data` volume holds vault key blobs and stored results as ciphertext
+encrypted with a master key that never leaves the user's browser. The server
+cannot decrypt it, and it cannot recreate it from anywhere else. If you lose the
+volume, every user's gallery and every wrapped key are gone permanently — there
+is no support path, no re-derivation, and no "restore from the images on the PC".
+This is the direct cost of the encryption working as designed, so a backup is not
+optional hygiene here.
+
+Take a consistent snapshot with SQLite's online backup (safe while the relay is
+running — a plain `cp` or `tar` of a live WAL database can capture a torn state):
+
+```bash
+cd /root/flux2-9b-klein-remote
+
+# Writes comfylink-YYYY-MM-DD.db into the current directory.
+docker compose exec -T server \
+  node -e "require('better-sqlite3')('/app/data/comfylink.db',{readonly:true}).backup('/app/data/backup.db').then(()=>console.log('ok'))" \
+  && docker compose cp server:/app/data/backup.db "./comfylink-$(date +%F).db" \
+  && docker compose exec -T server rm -f /app/data/backup.db
+```
+
+Copy the resulting file off the VPS (`scp`, restic, your provider's object
+store — anywhere that is not the same disk), and test a restore at least once.
+
+If you would rather snapshot the whole volume, stop the stack first so the WAL is
+checkpointed, then tar it:
+
+```bash
+docker compose down                                   # NOT `down -v` — that deletes the volume
+docker run --rm -v flux2-9b-klein-remote_server_data:/data -v "$PWD:/backup" \
+  alpine tar czf "/backup/server_data-$(date +%F).tar.gz" -C /data .
+docker compose up -d
+```
+
+> The volume's real name is `<compose-project>_server_data`, where the project
+> name defaults to the deployment directory name. Confirm yours with
+> `docker volume ls`.
+
+To restore, put the `.db` file back at `/app/data/comfylink.db` in the volume (or
+untar the archive into it) with the stack stopped, then `docker compose up -d`.
+
+> **Never run `docker compose down -v`.** The `-v` deletes named volumes,
+> including `server_data`. Use `docker compose up -d --force-recreate` to restart
+> the stack; `down` without `-v` is safe.
 
 ---
 

@@ -17,11 +17,12 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 |----------|---------|-------------|
 | `PC_SECRET` | *(required)* | Shared secret authenticating the PC to the relay. Use a long random string. |
 | `JWT_SECRET` | *(required)* | Secret for signing session JWTs. |
-| `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth 2.0 Client ID for user login. Optional when running e-mail/password-only deployments. |
+| `GOOGLE_CLIENT_ID` | *(unset)* | Google OAuth 2.0 Client ID for user login. When unset, Google login is **disabled**: `POST /auth/google` and Google step-up return `503 google_login_disabled`. The server never verifies an ID token without an audience. |
 | `VITE_GOOGLE_CLIENT_ID` | *(unset)* | Same value as `GOOGLE_CLIENT_ID`; only needed when Google login is enabled. |
-| `DEPLOY_MODE` | `local` | Tells the pc-client where the relay lives: `local` (same machine — connects to `localhost`) or `remote` (connects to `FLUX_KLEIN_HOST` over WSS). |
+| `DEPLOY_MODE` | `local` | Read by **both** the pc-client and the server. For the pc-client it says where the relay lives: `local` (same machine — connects to `localhost`) or `remote` (connects to `FLUX_KLEIN_HOST` over WSS). For the server it selects the production guards: in `remote` mode `ALLOWED_ORIGINS` and `PC_PUBLIC_KEY_FINGERPRINT` are **required** (the server refuses to start without them) and CORS, WebSocket origin checks and PC public-key pinning are enforced; in `local` mode all three are relaxed and the server logs a startup warning naming each disabled check. Use `remote` for anything reachable beyond the host machine, Tailscale included. |
 | `FLUX_KLEIN_HOST` | — | Public hostname serving the app — a domain name or Tailscale MagicDNS hostname. Used by the pc-client when `DEPLOY_MODE=remote`, and by Caddy for the TLS cert. Must be a hostname, not a raw LAN IP. |
 | `VPS_URL` | — | Direct WebSocket URL for the relay (e.g. `wss://yourdomain.com`); overrides `DEPLOY_MODE` + `FLUX_KLEIN_HOST` when set. |
+| `NODE_ENV` | *(unset)* | Set to `production` on any real deployment so Express installs its production error handler and unhandled route errors stop returning stack traces. Already set by `server/Dockerfile` and `docker-compose.yml`; only set it yourself when running the relay outside Docker. |
 | `PORT` | `3000` | Port the Node.js relay listens on. |
 | `SESSION_TTL_MS` | `86400000` | Phone session lifetime in ms (default: 24 h). |
 | `BEHIND_PROXY` | `false` | Set to `true` when the relay is behind Caddy/nginx so IP-based rate limits trust `X-Forwarded-For`. |
@@ -43,3 +44,21 @@ All configuration lives in a single root `.env`. Copy `.env.example` to `.env` t
 | `VPS_USER` | `root` | SSH username for manual deployments. |
 | `VPS_SSH_HOST` | — | SSH address of the VPS for manual deployments. |
 | `VPS_PATH` | `/root/flux2-9b-klein-remote` | Deployment path for manual deployments. |
+
+> **`VPS_SSH_HOST` vs `VPS_HOST`.** They are two different settings despite the near-identical names. `VPS_SSH_HOST` is an `.env` variable used only by *manual* deploys from your own machine. `VPS_HOST` is a **GitHub Actions repository secret** read by `.github/workflows/deploy.yml`; it never appears in `.env`. They usually hold the same address, but setting one does nothing for the other.
+
+---
+
+## CI secrets
+
+Repository secrets read by `.github/workflows/deploy.yml` (Settings → Secrets and variables → Actions). These live only in GitHub, never in `.env`.
+
+| Secret | Description |
+|--------|-------------|
+| `VPS_HOST` | SSH-reachable address of the VPS (IP or hostname). |
+| `VPS_USER` | SSH username on the VPS (e.g. `root`). |
+| `SSH_PRIVATE_KEY` | Private SSH key authorised to log in to the VPS. |
+| `VPS_PATH` | Deployment directory on the VPS. |
+| `VPS_FINGERPRINT` | SHA256 host-key fingerprint of the VPS, pinned on every SSH/SCP step. Obtain with `ssh-keyscan -t ed25519 HOST \| ssh-keygen -lf -` and copy the `SHA256:…` field. Without it the runner — which is ephemeral, so every deploy is a first connection — accepts whatever host key answers. |
+| `VITE_GOOGLE_CLIENT_ID` | Same value as `GOOGLE_CLIENT_ID` in the VPS `.env`; inlined into the bundle at build time. |
+| `VITE_PC_KEY_FINGERPRINT` | Same value as `PC_PUBLIC_KEY_FINGERPRINT`; inlined into the bundle at build time. |

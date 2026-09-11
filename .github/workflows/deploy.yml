@@ -13,6 +13,13 @@
 #
 #   5. VITE_GOOGLE_CLIENT_ID    — same value as GOOGLE_CLIENT_ID in the VPS .env
 #   6. VITE_PC_KEY_FINGERPRINT  — same value as PC_PUBLIC_KEY_FINGERPRINT
+#
+# SSH host-key pinning (runners are ephemeral, so every deploy is a first
+# connection — without this the actions accept whatever host key answers):
+#
+#   7. VPS_FINGERPRINT  — SHA256 host-key fingerprint of the VPS. Obtain with:
+#                         ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -
+#                         and copy the "SHA256:…" field.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Deploy to VPS
@@ -21,6 +28,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch: # Allow manual runs from the GitHub Actions tab
+
+# This workflow never calls the GitHub API; it needs no GITHUB_TOKEN scopes.
+# Without this block it would inherit the (possibly write) repository default.
+permissions: {}
 
 jobs:
   deploy:
@@ -87,6 +98,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
           source: "server/"
           target: ${{ secrets.VPS_PATH }}
           strip_components: 0
@@ -97,6 +109,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
           source: "client/dist/"
           target: ${{ secrets.VPS_PATH }}
           strip_components: 0
@@ -107,6 +120,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
           source: "docker-compose.yml,Caddyfile"
           target: ${{ secrets.VPS_PATH }}
 
@@ -118,9 +132,13 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fingerprint: ${{ secrets.VPS_FINGERPRINT }}
           script: |
             cd ${{ secrets.VPS_PATH }}
-            # Remove stale server node_modules (compiled on different OS)
+            # Kept deliberately. server/.dockerignore now excludes node_modules
+            # from the build context, so this is no longer load-bearing for the
+            # image — but scp never deletes, so a tree left by an older deploy
+            # would otherwise sit on the VPS forever. Cheap, so keep sweeping it.
             rm -rf server/node_modules
             docker compose up -d --build --force-recreate
             docker image prune -f

@@ -1,0 +1,11 @@
+# Keep the build context to exactly what the Dockerfile copies.
+# node_modules in particular must never be baked in: the VPS tree is populated
+# by scp and may hold native modules compiled for a different OS/libc.
+
+node_modules
+data
+.env
+.env.*
+*.db
+*.sqlite*
+*.log

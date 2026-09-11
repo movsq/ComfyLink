@@ -7,8 +7,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN npm install --omit=dev \
+# NODE_ENV=production also makes Express install its production error handler,
+# so unhandled route errors no longer render a stack trace to the client.
+ENV NODE_ENV=production
+
+# npm ci against the committed lockfile — every build resolves to the exact
+# versions that were reviewed, and two builds of the same commit are identical.
+# (npm install would re-resolve every caret range at build time.)
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
     && (test -d node_modules/@node-rs/argon2 \
     || (echo "ERROR: @node-rs/argon2 not installed" && exit 1))
 
