@@ -25,9 +25,13 @@
 # Comment this block out only if you have a specific reason (e.g. you use a
 # different CDN/proxy whose ranges you want to list instead).
 # Updated for 2026.  Latest list → https://www.cloudflare.com/ips/
+# Both families are listed: when Cloudflare reaches Caddy over IPv6 and the v6
+# ranges are missing, the edge node is not trusted, {remote_host} becomes the
+# Cloudflare address, and every visitor collapses into one rate-limit bucket and
+# one useless audit-log IP.
 {
     servers {
-        trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/20 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+        trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/20 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
     }
 }
 
@@ -42,8 +46,14 @@
         X-Frame-Options DENY
         X-Content-Type-Options nosniff
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://play.google.com; img-src 'self' blob: data: https://lh3.googleusercontent.com; frame-src https://accounts.google.com"
+        # base-uri and form-action do NOT fall back to default-src, so they have
+        # to be spelled out: without base-uri an injected <base href> retargets
+        # every relative script URL.
+        Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://play.google.com; img-src 'self' blob: data: https://lh3.googleusercontent.com; frame-src https://accounts.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
         Referrer-Policy strict-origin-when-cross-origin
+        # The app never uses these devices; deny them so an injected iframe or
+        # script cannot prompt for them under this origin's name.
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }
 
     # ── WebSocket → Node.js relay ──────────────────────────────────────────────

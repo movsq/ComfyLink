@@ -43,16 +43,61 @@ comparison of the input and output is shown in ComfyUI's UI via the
 
 Download these into the indicated ComfyUI model directories before running.
 
-| File | Directory | Download |
-|------|-----------|----------|
-| `flux-2-klein-9b-Q4_K_M.gguf` (default), `Q5_K_M`, `Q6_K`, or `Q8_0` variant | `models/unet/` | [Hugging Face — FLUX.2-klein-9B-GGUF (all quants)](https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main) — download the quant you want |
-| `Qwen_Qwen3-8B-Q4_K_M.gguf` (**default**) | `models/clip/` | [Hugging Face — bartowski/Qwen_Qwen3-8B-GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/tree/main) — recommended |
-| `qwen3-8b-q4_k_m.gguf` (alternative) | `models/clip/` | [Hugging Face — Aldaris/Qwen3-8B-Q4_K_M-GGUF](https://huggingface.co/Aldaris/Qwen3-8B-Q4_K_M-GGUF/blob/main/qwen3-8b-q4_k_m.gguf) |
-| `flux2-vae.safetensors` | `models/vae/` | [Hugging Face — Flux 2 VAE](https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
+> **Filenames are case-sensitive on Linux** and are matched exactly — by the
+> client's dropdown, by the pc-client's allow-list, and by ComfyUI itself.
+> `Flux-2-Klein-9B-KV-Q4_K_M.gguf` and `flux-2-klein-9b-q4_k_m.gguf` are two
+> different files. Download them under the names below, unchanged.
 
-> **VRAM requirement:** Q4_K_M (default, ~5.9 GB) runs comfortably on 12 GB VRAM.
+**Diffusion model** — `models/unet/`. The app's dropdown offers exactly these six;
+**`Flux-2-Klein-9B-KV-Q4_K_M.gguf` is the client's default**, so download at
+least that one. `flux-2-klein-9b-Q4_K_M.gguf` is the pc-client's own fallback,
+used when a job arrives without a model choice.
+
+| File | Size | Source |
+|------|------|--------|
+| `Flux-2-Klein-9B-KV-Q4_K_M.gguf` (**client default**) | 5.72 GB | [FLUX.2-klein-9B-GGUF (all quants)](https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main) |
+| `Flux-2-Klein-9B-KV-Q5_K_M.gguf` | 6.81 GB | same repo |
+| `Flux-2-Klein-9B-KV-Q6_K.gguf` | 7.87 GB | same repo |
+| `flux-2-klein-9b-Q4_K_M.gguf` (pc-client fallback) | 5.91 GB | same repo |
+| `flux-2-klein-9b-Q5_K_M.gguf` | 7.02 GB | same repo |
+| `flux-2-klein-9b-Q6_K.gguf` | 7.87 GB | same repo |
+
+`flux-2-klein-9b-Q8_0.gguf` (~10 GB) also works, but the client's dropdown does
+not list it — add it to `quantizationOptions` in
+`client/src/components/Submit.svelte` if you want to select it from the UI.
+
+**CLIP model** — `models/clip/`. The dropdown offers these three; the default is
+the first.
+
+| File | Size | Source |
+|------|------|--------|
+| `Qwen_Qwen3-8B-Q4_K_M.gguf` (**default**) | 5.03 GB | [bartowski/Qwen_Qwen3-8B-GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/tree/main) |
+| `Qwen3-8B-Q4_K_M.gguf` | 5.03 GB | [Aldaris/Qwen3-8B-Q4_K_M-GGUF](https://huggingface.co/Aldaris/Qwen3-8B-Q4_K_M-GGUF/blob/main/qwen3-8b-q4_k_m.gguf) — rename to this exact casing |
+| `Qwen3-8B-Q4_K_M_v2.gguf` | 5.03 GB | any Qwen3-8B Q4_K_M build you want as a second slot |
+
+**LoRA** — `models/loras/`. Optional: the workflow only wires node 181 in when the
+job asks for a LoRA. The client's dropdown sends these two names, so whatever
+adapters you want to offer must be saved under them (or you change the dropdown
+and `ALLOWED_LORA` together).
+
+| File | Dropdown label | Source |
+|------|----------------|--------|
+| `lora1.safetensors` | LoRa - N1 | any Flux 2 Klein LoRA you want in slot 1 |
+| `lora2.safetensors` | LoRa - N2 | any Flux 2 Klein LoRA you want in slot 2 |
+
+**VAE** — `models/vae/`
+
+| File | Source |
+|------|--------|
+| `flux2-vae.safetensors` | [Flux 2 VAE](https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
+
+> **VRAM requirement:** Q4_K_M (~5.7–5.9 GB) runs comfortably on 12 GB VRAM.
 > Larger quants need proportionally more: Q5_K_M ~7 GB, Q6_K ~7.9 GB, Q8_0 ~10 GB.
 > Lower-VRAM systems may need to enable CPU offload in ComfyUI (`--cpu-offload`).
+
+> **Only files the pc-client allows are accepted.** The allow-lists default to
+> exactly the names above; if you add your own, list them in `ALLOWED_GGUF`,
+> `ALLOWED_CLIP` or `ALLOWED_LORA` in `.env` as well as in the client dropdown.
 
 ---
 

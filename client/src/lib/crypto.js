@@ -17,7 +17,7 @@
  *   7. decryptPayload(resultKey, iv, ct)       — decrypt → Uint8Array
  */
 
-function getSubtle() {
+export function getSubtle() {
   const s = globalThis.crypto?.subtle;
   if (!s) {
     throw new Error(
@@ -170,19 +170,6 @@ export function decodeResultPayload(b64) {
   return { iv, ciphertext };
 }
 
-/**
- * Decode a job payload (for the crypto roundtrip test only — normally only the PC does this).
- */
-export function decodeJobPayload(b64) {
-  const buf = b64ToBuffer(b64);
-  const view = new DataView(buf.buffer);
-  const keyLen = view.getUint16(0, false);
-  const ephPubKeyBytes = buf.slice(2, 2 + keyLen);
-  const iv = buf.slice(2 + keyLen, 2 + keyLen + 12);
-  const ciphertext = buf.slice(2 + keyLen + 12);
-  return { ephPubKeyBytes, iv, ciphertext };
-}
-
 // ── Key pinning ──────────────────────────────────────────────────────────
 
 /**
@@ -191,10 +178,18 @@ export function decodeJobPayload(b64) {
  * @throws {Error} if the fingerprint doesn't match or isn't configured
  */
 export async function verifyPcKeyFingerprint(b64) {
-  const pinned = (import.meta.env.VITE_PC_KEY_FINGERPRINT ?? '').replace(/:/g, '').toLowerCase();
-  if (!pinned || pinned.length !== 64) {
+  // .trim() first: a quoted value with interior padding survives dotenv and would
+  // otherwise push the length past 64 and report itself as "not configured".
+  const pinned = (import.meta.env.VITE_PC_KEY_FINGERPRINT ?? '').trim().replace(/:/g, '').toLowerCase();
+  if (!pinned) {
     throw new Error(
       'PC key fingerprint is not configured. Set VITE_PC_KEY_FINGERPRINT in .env and rebuild.'
+    );
+  }
+  if (!/^[0-9a-f]{64}$/.test(pinned)) {
+    throw new Error(
+      'PC key fingerprint is not a 64-hex-character digest. ' +
+      'Check VITE_PC_KEY_FINGERPRINT in .env and rebuild.'
     );
   }
   const keyBytes = b64ToBuffer(b64);
@@ -220,6 +215,11 @@ export function bufToB64(buf) {
 }
 
 export function b64ToBuffer(b64) {
+  // atob() coerces its argument, so atob(null) silently returns 3 bytes.
+  // Fail loudly instead of deriving keys from a stringified null.
+  if (typeof b64 !== 'string') {
+    throw new TypeError('b64ToBuffer expects a base64 string');
+  }
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

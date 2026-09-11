@@ -112,6 +112,7 @@
       } else if (data.type === 'job_done') {
         // Another tab's job finished — remove from our pending display.
         if (pendingJobs.has(data.jobId)) {
+          releaseJobPreviews(pendingJobs.get(data.jobId));
           pendingJobs.delete(data.jobId);
           pendingJobs = new Map(pendingJobs);
         }
@@ -172,6 +173,7 @@
       }
       if (!entry.aesKey) {
         // This tab/session does not have the ECDH key material for this job.
+        releaseJobPreviews(entry);
         pendingJobs.delete(msg.jobId);
         pendingJobs = new Map(pendingJobs);
         wsError = 'A finished job was recovered, but this tab cannot decrypt it.';
@@ -186,9 +188,11 @@
         promptSnippet: (entry.promptText ?? '').slice(0, 80),
         thumbnail: typeof msg.thumbnail === 'string' ? msg.thumbnail : null,
         imageUrl: null,
-        expiresAt: Date.now() + 120_000, // 2-min shelf window starts now
+        // Placeholder — the real 2-min shelf window is stamped in handleClose.
+        expiresAt: Date.now() + 120_000,
       }];
       // Remove from pending
+      releaseJobPreviews(entry);
       pendingJobs.delete(msg.jobId);
       pendingJobs = new Map(pendingJobs); // trigger reactivity
       // Notify sibling tabs so they can remove this job from their display
@@ -202,12 +206,13 @@
       } else if (message === 'tos_not_accepted') {
         showTerms = true;
       } else if (message === 'queue_full') {
-        wsError = 'Queue is full (max 3 jobs) — wait for one to finish.';
+        wsError = `Queue is full (max ${queueState.maxQueuePerUser ?? 3} jobs) — wait for one to finish.`;
       } else {
         wsError = message ?? 'Unknown error';
       }
       // Remove from pending if we have a jobId for it
       if (jobId && pendingJobs.has(jobId)) {
+        releaseJobPreviews(pendingJobs.get(jobId));
         pendingJobs.delete(jobId);
         pendingJobs = new Map(pendingJobs);
       }
@@ -257,6 +262,7 @@
         activeJobId: msg.activeJobId ?? null,
         avgDuration: msg.avgDuration ?? 60,
         queueSize: msg.queueSize ?? (msg.queue?.length ?? 0),
+        maxQueuePerUser: msg.maxQueuePerUser ?? 3,
       };
     });
 
@@ -406,6 +412,14 @@
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
+  // Queue-row previews are object URLs owned by this map (Submit creates them per
+  // submit, separate from the live input previews). Release them whenever a job
+  // leaves pendingJobs, whatever the reason.
+  function releaseJobPreviews(entry) {
+    if (entry?.preview1) URL.revokeObjectURL(entry.preview1);
+    if (entry?.preview2) URL.revokeObjectURL(entry.preview2);
+  }
+
   function handleJobSubmitted({ aesKey, jobId, promptText, preview1, preview2 }) {
     pendingJobs.set(jobId, { aesKey, promptText, preview1, preview2 });
     pendingJobs = new Map(pendingJobs); // trigger reactivity
@@ -415,6 +429,7 @@
 
   function handleJobCancelled({ jobId }) {
     if (jobId && pendingJobs.has(jobId)) {
+      releaseJobPreviews(pendingJobs.get(jobId));
       pendingJobs.delete(jobId);
       pendingJobs = new Map(pendingJobs);
     }
@@ -444,23 +459,23 @@
     }
   }
 
-  // ── Modal close: dismiss front result to recovery shelf (remaining time of its 2-min window) ──
+  // ── Modal close: dismiss front result to recovery shelf for a fresh 2-min window ──
+  const SHELF_WINDOW_MS = 120_000;
+
   function handleClose() {
     if (resultStack.length === 0) return;
     const item = resultStack[0];
     resultStack = resultStack.slice(1);
-    const remaining = item.expiresAt - Date.now();
-    if (remaining <= 0) {
-      // Window already expired while modal was open — discard silently
-      if (item.imageUrl) URL.revokeObjectURL(item.imageUrl);
-      return;
-    }
+    // The countdown starts at dismissal, not at arrival: a result the user
+    // studied for longer than the window would otherwise be destroyed by the
+    // very gesture that everywhere else means "put it on the shelf".
+    const expiresAt = Date.now() + SHELF_WINDOW_MS;
     const timerId = setTimeout(() => {
       const expiring = dismissedResults.find(d => d.id === item.id);
       if (expiring?.imageUrl) URL.revokeObjectURL(expiring.imageUrl);
       dismissedResults = dismissedResults.filter(d => d.id !== item.id);
-    }, remaining);
-    dismissedResults = [...dismissedResults, { ...item, timerId }];
+    }, SHELF_WINDOW_MS);
+    dismissedResults = [...dismissedResults, { ...item, expiresAt, timerId }];
   }
 
   // ── New Job: discard front result cleanly, advance seed ──────────────────────
@@ -473,8 +488,15 @@
     wsError = '';
   }
 
-  // Store decrypted imageUrl so dismissed cards can display the image
+  // Store decrypted imageUrl so dismissed cards can display the image.
+  // App is the sole owner of these URLs (Result never revokes), so a re-mounted
+  // Result handing us a freshly decrypted URL means the previous one is now
+  // unreferenced — revoke it here or reopening a shelved result leaks a copy.
   function storeImageUrl(id, url) {
+    const prev = resultStack.find(item => item.id === id)?.imageUrl
+      ?? dismissedResults.find(item => item.id === id)?.imageUrl
+      ?? null;
+    if (prev && prev !== url) URL.revokeObjectURL(prev);
     resultStack = resultStack.map(item => item.id === id ? { ...item, imageUrl: url } : item);
     dismissedResults = dismissedResults.map(item => item.id === id ? { ...item, imageUrl: url } : item);
   }
@@ -513,6 +535,7 @@
     if (reason === 'no_uses_remaining') return 'No remaining uses on your account.';
     if (reason === 'account_suspended') return 'Account is no longer active.';
     if (reason === 'code_not_found') return 'Access code is no longer valid.';
+    if (reason === 'tos_declined') return 'You must accept the Terms of Service to use this service.';
     return 'Session expired. Please sign in again.';
   }
 
@@ -542,6 +565,7 @@
     wsEverConnected = false;
     sessionNotice = formatSessionReason(reason);
     queueState = { queue: [], activeJobId: null, avgDuration: 60 };
+    for (const entry of pendingJobs.values()) releaseJobPreviews(entry);
     pendingJobs = new Map();
     showAdmin = false;
     showGallery = false;
@@ -604,6 +628,7 @@
       {clockNow}
       wsConnected={wsState === 'connected'}
       wsInitializing={!wsEverConnected}
+      {tosAccepted}
       onReopenDismissed={reopenDismissed}
     />
   {/if}
@@ -623,7 +648,7 @@
         stackOffset={forwardI}
         {token}
         {masterKey}
-        userType={user?.type ?? 'google'}
+        canSaveToVault={hasDbUser}
         onRequestVaultUnlock={requestVaultUnlock}
         onUseAsInput={handleUseAsInput}
         initialSaved={item.saved ?? false}
@@ -664,6 +689,7 @@
       userEmail={user?.email ?? ''}
       userType={user?.type}
       {requestFreshGoogleToken}
+      onUnlocked={handleVaultUnlocked}
       onClose={() => showVaultSettings = false}
       onUpdated={() => { showVaultSettings = false; checkVault(); }}
       onRequestUnlock={() => { showVaultSettings = false; pendingVaultAction = () => { showVaultSettings = true; }; requestVaultUnlock(); }}
@@ -686,7 +712,14 @@
       isCodeUser={user?.type === 'code_user'}
       viewOnly={termsViewOnly}
       onAccepted={() => { tosAccepted = true; showTerms = false; termsViewOnly = false; }}
-      onDeclined={() => { showTerms = false; termsViewOnly = false; }}
+      onDeclined={() => {
+        // View-only (footer link) just closes. A real decline is a hard stop:
+        // the server cannot enforce acceptance for code users, so end the session
+        // instead of leaving an unaccepted user on the submit screen.
+        if (termsViewOnly) { showTerms = false; termsViewOnly = false; return; }
+        showTerms = false;
+        forceRelogin('tos_declined');
+      }}
     />
   {/if}
 

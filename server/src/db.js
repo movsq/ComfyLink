@@ -13,6 +13,10 @@ const db = new Database(DB_PATH);
 
 // ── Pragmas ───────────────────────────────────────────────────────────────────
 db.pragma('journal_mode = WAL');
+// FULL fsyncs the WAL on every commit. The write volume here is tiny and the DB
+// holds ciphertext nobody — not even the server — can recreate, so durability is
+// worth far more than the throughput it costs.
+db.pragma('synchronous = FULL');
 db.pragma('foreign_keys = ON');
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -80,7 +84,71 @@ db.exec(`
 
 // ── Runtime migrations ───────────────────────────────────────────────────────
 // Uses PRAGMA user_version to track applied migrations.
+const LATEST_DB_VERSION = 12;
 const _dbVersion = db.pragma('user_version', { simple: true });
+
+// Forward-version guard: a database written by a newer build runs no migration
+// here and would otherwise fail much later with a confusing "no such column"
+// from db.prepare(). Fail immediately with a message that names the cause.
+if (_dbVersion > LATEST_DB_VERSION) {
+  throw new Error(
+    `[db] Database schema is v${_dbVersion} but this build only knows up to v${LATEST_DB_VERSION}. `
+    + 'Refusing to start — downgrading would corrupt data. Deploy a newer build or restore an older DB.',
+  );
+}
+
+const stmtTableExists = db.prepare(
+  "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+);
+const tableExists = (name) => !!stmtTableExists.get(name);
+const tableRowCount = (name) => db.prepare(`SELECT COUNT(*) AS cnt FROM "${name}"`).get().cnt;
+
+/**
+ * Repair a database left half-applied by a crash during a table rebuild.
+ *
+ * The dangerous state is: the real table was dropped (or recreated empty by the
+ * top-level CREATE TABLE IF NOT EXISTS above) while the only copy of the rows
+ * still lives in the staging table and user_version is still at N-1. Older
+ * builds opened their rebuild with `DROP TABLE IF EXISTS <staging>`, which
+ * destroyed exactly that copy. Rename it back instead.
+ *
+ * If the real table exists and holds rows, it is authoritative and any leftover
+ * staging table is stale — rebuildTable() drops it inside its own transaction.
+ */
+function recoverStagingTable(table, staging) {
+  if (!tableExists(staging)) return;
+  if (!tableExists(table)) {
+    console.warn(`[db] recovering "${staging}" → "${table}" after an interrupted migration`);
+    db.exec(`ALTER TABLE "${staging}" RENAME TO "${table}"`);
+    return;
+  }
+  if (tableRowCount(table) === 0 && tableRowCount(staging) > 0) {
+    console.warn(`[db] "${table}" is empty but "${staging}" holds rows — recovering the staging copy`);
+    db.exec(`DROP TABLE "${table}"; ALTER TABLE "${staging}" RENAME TO "${table}"`);
+  }
+}
+
+/**
+ * Run a table-rebuild migration atomically.
+ *
+ * SQLite cannot ALTER a column type or a CHECK constraint, so these migrations
+ * create a staging table, copy the rows across, drop the original and rename.
+ * Every step must land together: a crash between `DROP TABLE <table>` and the
+ * RENAME leaves the rows only in <staging>, and the next boot would recreate
+ * <table> empty. Wrapping the whole sequence — CREATE → INSERT → DROP → RENAME →
+ * user_version — in one transaction closes that window, and recoverStagingTable()
+ * repairs databases already damaged by the pre-transactional version.
+ */
+function rebuildTable(table, staging, version, sql) {
+  db.transaction(() => {
+    recoverStagingTable(table, staging);
+    // Safe now: recovery above has already salvaged a staging table that held
+    // the only copy, so anything still here is a stale leftover.
+    db.exec(`DROP TABLE IF EXISTS "${staging}"`);
+    db.exec(sql);
+    db.pragma(`user_version = ${version}`);
+  })();
+}
 
 if (_dbVersion < 1) {
   // v1: add uses_remaining to users; pre-existing users become unlimited (NULL)
@@ -153,7 +221,12 @@ if (db.pragma('user_version', { simple: true }) < 7) {
   // The browser no longer encrypts and uploads thumbnail blobs; instead the PC
   // client generates a 200px WebP thumbnail and sends it alongside the encrypted
   // result. This removes encrypted_thumb / iv_thumb and adds the thumb column.
-  db.exec(`
+  // Crash window closed by rebuildTable: between DROP TABLE stored_results and
+  // the RENAME, every user's saved result existed only in stored_results_v7.
+  // The previous non-transactional form also used a bare CREATE TABLE, so a
+  // retry after such a crash threw "table stored_results_v7 already exists" at
+  // import time and the server never started.
+  rebuildTable('stored_results', 'stored_results_v7', 7, `
     CREATE TABLE stored_results_v7 (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -171,7 +244,6 @@ if (db.pragma('user_version', { simple: true }) < 7) {
     CREATE INDEX IF NOT EXISTS idx_stored_results_user_date
       ON stored_results(user_id, created_at DESC);
   `);
-  db.pragma('user_version = 7');
 }
 
 if (db.pragma('user_version', { simple: true }) < 8) {
@@ -241,7 +313,13 @@ if (db.pragma('user_version', { simple: true }) < 8) {
         CREATE UNIQUE INDEX idx_users_email_unique_email_auth
           ON users(email) WHERE google_sub IS NULL
       `);
-    } catch { /* already exists on fresh DB */ }
+    } catch (err) {
+      // Only "index already exists" is benign. The realistic failure here is
+      // "UNIQUE constraint failed: users.email" — pre-existing duplicate
+      // email-auth rows — and silently continuing would leave the table
+      // unindexed and findEmailUserByEmail non-deterministic. Fail loudly.
+      if (!/already exists/i.test(err.message)) throw err;
+    }
     db.pragma('user_version = 8');
   } finally {
     db.pragma('foreign_keys = ON');
@@ -251,9 +329,11 @@ if (db.pragma('user_version', { simple: true }) < 8) {
 if (db.pragma('user_version', { simple: true }) < 9) {
   // v9: Expand job_audit_log user_type to include 'email'.
   // SQLite cannot ALTER a CHECK constraint, so we recreate the table.
-  // DROP TABLE IF EXISTS guard makes this safe to retry after a mid-migration crash.
-  db.exec(`
-    DROP TABLE IF EXISTS job_audit_log_v9;
+  // Crash window closed by rebuildTable: between DROP TABLE job_audit_log and
+  // the RENAME the compliance rows existed only in job_audit_log_v9, and the
+  // previous leading `DROP TABLE IF EXISTS job_audit_log_v9` was precisely what
+  // discarded them on the retry it claimed to make safe.
+  rebuildTable('job_audit_log', 'job_audit_log_v9', 9, `
     CREATE TABLE job_audit_log_v9 (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       job_id      TEXT    NOT NULL,
@@ -273,19 +353,25 @@ if (db.pragma('user_version', { simple: true }) < 9) {
     CREATE INDEX IF NOT EXISTS idx_job_audit_log_created_at
       ON job_audit_log(created_at);
   `);
-  db.pragma('user_version = 9');
 }
 
 if (db.pragma('user_version', { simple: true }) < 10) {
   // v10: Add job_id to stored_results for save-deduplication.
   // A per-user unique index on (user_id, job_id) prevents double-saves of the same job.
   // The WHERE clause makes the index partial so rows with NULL job_id are not constrained.
-  db.exec(`
-    ALTER TABLE stored_results ADD COLUMN job_id TEXT DEFAULT NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_results_user_job_id
-      ON stored_results(user_id, job_id) WHERE job_id IS NOT NULL;
-  `);
-  db.pragma('user_version = 10');
+  // Crash window: the column add, the index and the user_version bump ran as
+  // three independent statements, so a crash after the ALTER left the column in
+  // place with user_version still 9 — and the retry threw "duplicate column
+  // name: job_id" at import time, bricking startup. Now transactional, with the
+  // same try/catch the other ADD COLUMN migrations (v1/v2/v4/v11) already have.
+  db.transaction(() => {
+    try { db.exec('ALTER TABLE stored_results ADD COLUMN job_id TEXT DEFAULT NULL'); } catch { /* already exists */ }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_results_user_job_id
+        ON stored_results(user_id, job_id) WHERE job_id IS NOT NULL;
+    `);
+    db.pragma('user_version = 10');
+  })();
 }
 
 if (db.pragma('user_version', { simple: true }) < 11) {
@@ -307,8 +393,14 @@ if (db.pragma('user_version', { simple: true }) < 12) {
   // thumbnails the same E2E encryption guarantee as the full images.
   // Existing plaintext thumb data is discarded — it cannot be retroactively
   // encrypted because the vault key never leaves the browser.
-  db.exec(`
-    DROP TABLE IF EXISTS stored_results_v12;
+  // Crash window closed by rebuildTable: between DROP TABLE stored_results and
+  // the RENAME every user's encrypted gallery existed only in
+  // stored_results_v12 with user_version still 11. On the next boot the
+  // top-level CREATE TABLE IF NOT EXISTS recreated stored_results empty and the
+  // old leading `DROP TABLE IF EXISTS stored_results_v12` destroyed the only
+  // surviving copy — silently, and with no possible recovery, since the relay
+  // holds ciphertext under keys it has never seen.
+  rebuildTable('stored_results', 'stored_results_v12', 12, `
     CREATE TABLE stored_results_v12 (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -330,7 +422,6 @@ if (db.pragma('user_version', { simple: true }) < 12) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_results_user_job_id
       ON stored_results(user_id, job_id) WHERE job_id IS NOT NULL;
   `);
-  db.pragma('user_version = 12');
 }
 
 // ── Prepared statements ───────────────────────────────────────────────────────
@@ -364,6 +455,12 @@ const stmtAtomicDecrementUserUses = db.prepare(
   'UPDATE users SET uses_remaining = uses_remaining - 1, updated_at = @updated_at WHERE id = @id AND uses_remaining > 0',
 );
 
+// Atomic refund: the mirror of the decrement above. The IS NOT NULL guard keeps
+// unlimited users (NULL) unlimited instead of turning them into "1 use left".
+const stmtRefundUserUses = db.prepare(
+  'UPDATE users SET uses_remaining = uses_remaining + 1, updated_at = @updated_at WHERE id = @id AND uses_remaining IS NOT NULL',
+);
+
 const stmtFindByEmail = db.prepare('SELECT * FROM users WHERE email = ?');
 const stmtFindByEmailNoGoogleSub = db.prepare('SELECT * FROM users WHERE email = ? AND google_sub IS NULL');
 
@@ -383,6 +480,11 @@ const stmtFindCodeById = db.prepare('SELECT * FROM invite_codes WHERE id = ?');
 // Atomic decrement: only succeeds if uses_remaining > 0. Returns result.changes = 1 on success.
 const stmtAtomicDecrementCodeUses = db.prepare(
   'UPDATE invite_codes SET uses_remaining = uses_remaining - 1 WHERE id = ? AND uses_remaining > 0',
+);
+
+// Atomic refund for invite codes — see stmtRefundUserUses.
+const stmtRefundCodeUses = db.prepare(
+  'UPDATE invite_codes SET uses_remaining = uses_remaining + 1 WHERE id = ? AND uses_remaining IS NOT NULL',
 );
 
 const stmtGetCodesByCreator = db.prepare(
@@ -432,12 +534,16 @@ const stmtFindResultByJobId = db.prepare(
   'SELECT id FROM stored_results WHERE user_id = ? AND job_id = ? LIMIT 1',
 );
 
+// Ordered by id, not created_at, so the ORDER BY and the `id < ?` cursor use the
+// same key. They agree today (id is autoincrement, created_at is Date.now() at
+// insert) but a backfill or a clock adjustment would break that correlation and
+// make the gallery skip or repeat rows.
 const stmtListResults = db.prepare(
-  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? AND id < ? ORDER BY created_at DESC LIMIT ?',
+  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
 );
 
 const stmtListResultsFirst = db.prepare(
-  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+  'SELECT id, (encrypted_thumb IS NOT NULL) AS has_thumb, full_size_bytes, created_at FROM stored_results WHERE user_id = ? ORDER BY id DESC LIMIT ?',
 );
 
 const stmtGetResultFull = db.prepare(
@@ -463,6 +569,23 @@ const stmtCountResultsByUser = db.prepare(
 const stmtDeleteVault = db.prepare(
   'DELETE FROM vault_keys WHERE user_id = ?',
 );
+
+// Account deletion. `users` is referenced with no ON DELETE clause by
+// invite_codes, vault_keys and stored_results, so every child row has to go
+// first or SQLite raises FOREIGN KEY constraint failed (PRAGMA foreign_keys is
+// ON). email_auth cascades, but is deleted explicitly so the order reads the
+// same way for every table. job_audit_log has no FK at all — its rows would
+// otherwise survive the user by construction.
+const stmtDeleteEmailAuthByUser = db.prepare(
+  'DELETE FROM email_auth WHERE user_id = ?',
+);
+const stmtDeleteCodesByCreator = db.prepare(
+  'DELETE FROM invite_codes WHERE created_by = ?',
+);
+const stmtDeleteAuditLogsByUser = db.prepare(
+  "DELETE FROM job_audit_log WHERE user_id = ? AND user_type IN ('google', 'email')",
+);
+const stmtDeleteUser = db.prepare('DELETE FROM users WHERE id = ?');
 
 const stmtGetAllUsers = db.prepare(
   'SELECT id, email, name, picture, status, is_admin, uses_remaining, tos_accepted_at, tos_version, created_at, updated_at FROM users ORDER BY created_at DESC',
@@ -595,6 +718,17 @@ export function atomicDecrementUserUses(id) {
   return stmtAtomicDecrementUserUses.run({ id, updated_at: Date.now() });
 }
 
+/**
+ * Give a use back after a job failed, was cancelled, or never ran. Quota is
+ * charged up front (anti-flood), so every terminal failure owes a refund.
+ * Returns the new uses_remaining, or null when the user is unlimited (NULL) —
+ * callers can hand that straight to the client as the authoritative value.
+ */
+export function refundUserUse(id) {
+  stmtRefundUserUses.run({ id, updated_at: Date.now() });
+  return stmtGetUserById.get(id)?.uses_remaining ?? null;
+}
+
 export function updateTosAccepted(id, version) {
   const now = Date.now();
   return stmtUpdateTosAccepted.run({ id, tos_accepted_at: now, tos_version: version, updated_at: now });
@@ -627,6 +761,15 @@ export function findInviteCodeById(id) {
  */
 export function atomicDecrementCodeUses(id) {
   return stmtAtomicDecrementCodeUses.run(id);
+}
+
+/**
+ * Give a use back to an invite code — the code-user counterpart of
+ * refundUserUse. Returns the new uses_remaining, or null for an unlimited code.
+ */
+export function refundCodeUse(codeId) {
+  stmtRefundCodeUses.run(codeId);
+  return stmtFindCodeById.get(codeId)?.uses_remaining ?? null;
 }
 
 export function getCodesByCreator(userId) {
@@ -740,6 +883,37 @@ export function countStoredResults(userId) {
 }
 
 // Admin: user management
+
+/**
+ * Erase a user and everything linked to them, in one transaction.
+ *
+ * Deletion order is dictated by the foreign keys: stored_results, vault_keys,
+ * email_auth and invite_codes all reference users(id), only email_auth cascades,
+ * and PRAGMA foreign_keys is ON — so a bare DELETE FROM users fails for any user
+ * who ever saved a result, set up a vault, or issued a code.
+ *
+ * Invite codes created by the user are deleted rather than reassigned: the code
+ * is a bearer credential handed out by that user, and leaving live codes behind
+ * would let their guests keep generating after the account is gone.
+ *
+ * job_audit_log rows for the user are deleted too. They are the compliance
+ * record (identity + IP, no payloads), and the user-facing promise in the TOS
+ * and docs/PRIVACY.md is unconditional destruction; the 6-month prune remains
+ * the retention control for accounts that still exist. Code-user rows carry no
+ * user_id, hence the user_type filter. revoked_tokens has no user column (it is
+ * keyed by jti and prunes itself past expiry), so there is nothing to remove.
+ *
+ * Returns { deleted: false } when no such user row existed.
+ */
+export const deleteUserCompletely = db.transaction((userId) => {
+  stmtDeleteAllResultsByUser.run(userId);
+  stmtDeleteVault.run(userId);
+  stmtDeleteEmailAuthByUser.run(userId);
+  stmtDeleteCodesByCreator.run(userId);
+  stmtDeleteAuditLogsByUser.run(userId);
+  const result = stmtDeleteUser.run(userId);
+  return { deleted: result.changes > 0 };
+});
 
 export function getAllUsers(status = null) {
   if (status) {

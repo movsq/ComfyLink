@@ -13,6 +13,18 @@
  *   ws.close();
  */
 
+/**
+ * Server-originated message types the app actually handles. Anything else is
+ * warned about and dropped, so the relay cannot reach the client's own
+ * lifecycle events ('open', 'close', 'connection_state', 'reconnect_failed',
+ * 'ws_error') — those are emitted by this module alone and must stay trusted.
+ * 'auth_ok', 'auth_failed' and 'session_invalid' are handled before dispatch.
+ */
+const SERVER_EVENTS = new Set([
+  'queued', 'result', 'error', 'no_pc', 'progress', 'queue_update',
+  'job_recovery', 'code_status', 'code_refreshed', 'uses_updated', 'pong',
+]);
+
 export function createPhoneWS(token) {
   const listeners = {};
   let socket = null;
@@ -107,6 +119,11 @@ export function createPhoneWS(token) {
         return;
       }
 
+      if (!SERVER_EVENTS.has(msg.type)) {
+        console.warn('[ws] Unknown message type from server, ignoring:', String(msg.type).slice(0, 64));
+        return;
+      }
+
       emit(msg.type, msg);
     });
 
@@ -165,6 +182,9 @@ export function createPhoneWS(token) {
 
   function reconnectNow() {
     if (closed) return;
+    // A manual retry is a fresh start — otherwise "Retry Connection" after the
+    // 5-attempt ceiling buys exactly one attempt before giving up again.
+    failedAttempts = 0;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

@@ -7,6 +7,7 @@
  */
 
 import { bufToB64, b64ToBuf } from './vault-crypto.js';
+import { getSubtle } from './crypto.js';
 
 /**
  * Check if the browser supports WebAuthn with the PRF extension.
@@ -14,6 +15,7 @@ import { bufToB64, b64ToBuf } from './vault-crypto.js';
  */
 export function checkWebAuthnSupport() {
   return typeof window !== 'undefined'
+    && window.isSecureContext === true // navigator.credentials rejects otherwise
     && typeof PublicKeyCredential !== 'undefined'
     && typeof navigator.credentials !== 'undefined';
 }
@@ -35,15 +37,24 @@ export async function checkPlatformAuthenticator() {
 /**
  * Register a new WebAuthn credential with PRF extension.
  *
- * @param {string} userId — opaque user ID (e.g. Google sub hash)
+ * @param {string} userId — account identifier (the e-mail address); it is hashed
+ *   before it becomes the user handle, never sent to the authenticator as-is
  * @param {string} userName — display name
  * @param {Uint8Array} prfSalt — random salt for PRF eval (stored server-side)
  * @returns {{ credentialId: string, publicKey: string, prfOutput: Uint8Array | null }}
  *   prfOutput is null if the authenticator does not support PRF.
  */
 export async function registerCredential(userId, userName, prfSalt) {
-  // Create a user handle from the userId string
-  const userIdBytes = new TextEncoder().encode(userId);
+  // user.id must be an opaque byte sequence with no personally identifying
+  // information (WebAuthn L2 §5.4.3) and at most 64 bytes. With
+  // residentKey: 'preferred' the credential is discoverable, so the handle is
+  // written into the authenticator/passkey provider and can be synced and shown
+  // in credential pickers — the raw e-mail does not belong there. SHA-256 gives
+  // a stable, opaque, spec-length (32-byte) handle for the same account.
+  // The e-mail stays in user.name / user.displayName, which is where it belongs.
+  const userIdBytes = new Uint8Array(
+    await getSubtle().digest('SHA-256', new TextEncoder().encode(userId)),
+  );
 
   const publicKeyOptions = {
     challenge: crypto.getRandomValues(new Uint8Array(32)),

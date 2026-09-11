@@ -87,7 +87,7 @@ Pick the deployment that fits how you'll use it:
 |---|---|---|
 | Prompt text & reference images | No — encrypted in transit only | Only your PC decrypts |
 | Generated full image | Encrypted blob (if saved to vault) | Only you, via your master key |
-| Gallery thumbnails | Encrypted blob | Only you, via your master key |
+| Gallery thumbnails | Encrypted blob (encrypted on your PC before the relay ever sees it) | Only you, via your master key |
 | User e-mail, timestamps, quota counters | Yes, plaintext | Deployer / admin |
 | ComfyUI job history | RAM only on the PC, deleted after each job | Not persisted |
 

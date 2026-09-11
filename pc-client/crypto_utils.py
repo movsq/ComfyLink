@@ -22,6 +22,7 @@ Result wire format (pc → server → phone, set by encode_result_payload):
 """
 
 import base64
+import binascii
 import json
 import os
 import struct
@@ -37,9 +38,13 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from config import PRIVATE_KEY_PATH, PRIVATE_KEY_PASSWORD, PUBLIC_KEY_PATH
-from job_validation import validate_seed, validate_steps
+from job_validation import validate_lora_strength, validate_seed, validate_steps
 
 MAX_PROMPT_LEN = 4_000  # characters; enforces the same limit as the client textarea
+# Per reference image, after base64 decoding. The socket's max_size only bounds
+# the whole message, so without this a single job could hand ComfyUI a ~37 MB
+# image. 25 MiB is far above anything a phone camera produces.
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
 
 # ── Keypair loading ────────────────────────────────────────────────────────────
@@ -215,20 +220,36 @@ def decrypt_job(b64_payload: str) -> tuple[dict, bytes]:
 
     def _decode_image(field: str) -> bytes | None:
         val = data.get(field)
-        return base64.b64decode(val) if val else None
+        if not val:
+            return None
+        if not isinstance(val, str):
+            raise ValueError(f"Invalid {field}: must be a base64 string")
+        try:
+            # validate=True so non-alphabet characters are rejected rather than
+            # silently dropped, which would mangle the image instead of failing.
+            raw = base64.b64decode(val, validate=True)
+        except binascii.Error as exc:
+            raise ValueError(f"Invalid {field}: not valid base64") from exc
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise ValueError(f"{field} too large (max {MAX_IMAGE_BYTES:,} bytes)")
+        return raw
 
     seed = validate_seed(data.get("seed", 0))
     steps = validate_steps(data.get("steps", 4))
 
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str):
+        raise ValueError("Invalid prompt: must be a string")
+
     job_params = {
-        "prompt":       data["prompt"],
+        "prompt":       prompt,
         "image1":       _decode_image("image1"),
         "image2":       _decode_image("image2"),
         "seed":         seed,
         "steps":        steps,
         "sampler":      data.get("sampler", "euler"),
         "lora":         data.get("lora"),
-        "loraStrength": max(0.0, min(2.0, float(data.get("loraStrength", 1.0)))),
+        "loraStrength": validate_lora_strength(data.get("loraStrength", 1.0)),
         "quantization": data.get("quantization"),
         "clipModel":    data.get("clipModel"),
     }

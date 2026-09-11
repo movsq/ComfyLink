@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     # No ports exposed to host — Caddy is the only public entry point.
     environment:
+      # Belt and braces: the image already sets this, but an explicit value here
+      # keeps Express's production error handler on even if the image changes.
+      - NODE_ENV=production
       - PORT=3000
       - PC_SECRET=${PC_SECRET}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}

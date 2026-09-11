@@ -1,7 +1,7 @@
 <script>
   import { rekeyVault, unlockVault, deleteVault } from '../lib/api.js';
   import {
-    exportMasterKey, deriveKeyFromPRF, deriveKeyFromRecovery,
+    deriveKeyFromPassword, deriveKeyFromPRF, deriveKeyFromRecovery,
     wrapMasterKey, unwrapMasterKey, bufToB64, b64ToBuf,
     wordsToRecoveryKey, recoveryKeyFromJSON,
   } from '../lib/vault-crypto.js';
@@ -9,9 +9,9 @@
     checkWebAuthnSupport, checkPlatformAuthenticator, registerCredential,
   } from '../lib/webauthn.js';
 
-  let { token, vaultInfo, masterKey = null, userEmail = '', userType = 'google', onClose, onUpdated, onRequestUnlock = () => {}, onVaultReset = () => {}, requestFreshGoogleToken = null } = $props();
+  let { token, vaultInfo, masterKey = null, userEmail = '', userType = 'google', onClose, onUpdated, onUnlocked = () => {}, onRequestUnlock = () => {}, onVaultReset = () => {}, requestFreshGoogleToken = null } = $props();
 
-  let mode = $state('main'); // 'main' | 'recovery' | 'reset_confirm'
+  let mode = $state('main'); // 'main' | 'recovery' | 'set_password' | 'change_password' | 'reset_confirm'
   let loading = $state(false);
   let error = $state('');
   let success = $state('');
@@ -25,6 +25,19 @@
 
   // Step-up password for email users (rekey / delete vault)
   let stepUpPassword = $state('');
+
+  // Current vault password — used to re-derive a short-lived extractable copy of
+  // the master key for re-wrapping. Distinct from stepUpPassword, which is the
+  // *account* password the server checks.
+  let vaultPassword = $state('');
+
+  // New vault password (change-password / post-recovery set-password)
+  let newPassword = $state('');
+  let confirmNewPassword = $state('');
+
+  // Short-lived EXTRACTABLE master key held only while a rekey is in progress.
+  // The long-lived key the app holds is deliberately non-extractable.
+  let rekeyKey = null;
 
   // Platform authenticator detection
   let platformAvailable = $state(false);
@@ -48,6 +61,29 @@
     !vaultInfo.hasBio && webauthnSupported && platformAvailable && !checkingPlatform,
   );
 
+  /** Step-up auth for vault mutations: Google users provide a fresh ID token,
+   *  email users confirm with their account password. */
+  async function buildStepUp() {
+    if (userType !== 'google') return { password: stepUpPassword };
+    if (requestFreshGoogleToken) return { idToken: await requestFreshGoogleToken() };
+    return {};
+  }
+
+  /**
+   * Re-derive a short-lived EXTRACTABLE copy of the master key from the vault
+   * password. The key the app holds for the session is non-extractable on
+   * purpose, and AES-KW wrapping requires extractability, so every re-wrap
+   * derives its own copy here and lets it go out of scope afterwards.
+   */
+  async function unwrapExtractableWithVaultPassword(password) {
+    if (!vaultInfo.hasPw) throw new Error('Vault has no password configured');
+    if (typeof vaultInfo.pbkdf2Salt !== 'string') throw new Error('Vault is missing its password salt');
+    const pbkdf2Salt = b64ToBuf(vaultInfo.pbkdf2Salt);
+    const wrappingKey = await deriveKeyFromPassword(password, pbkdf2Salt);
+    const { encryptedMasterKey } = await unlockVault(token, 'pw');
+    return unwrapMasterKey(b64ToBuf(encryptedMasterKey), wrappingKey, true);
+  }
+
   async function handleAddBiometric() {
     if (!masterKey) {
       onRequestUnlock();
@@ -57,7 +93,12 @@
     error = '';
     success = '';
     try {
+      if (typeof vaultInfo.prfSalt !== 'string') throw new Error('Vault is missing its PRF salt');
       const prfSalt = b64ToBuf(vaultInfo.prfSalt);
+
+      // Re-wrapping needs raw key bytes, which the session key deliberately
+      // cannot give us — derive a throwaway extractable copy first.
+      const mk = await unwrapExtractableWithVaultPassword(vaultPassword);
 
       // Register WebAuthn credential with existing prfSalt
       const reg = await registerCredential(userEmail, userEmail, prfSalt);
@@ -70,15 +111,9 @@
 
       // Derive bio wrapping key and wrap the existing master key
       const bioWrappingKey = await deriveKeyFromPRF(reg.prfOutput, prfSalt);
-      const wrappedBio = await wrapMasterKey(masterKey, bioWrappingKey);
+      const wrappedBio = await wrapMasterKey(mk, bioWrappingKey);
 
-      // Step-up auth: Google users provide a fresh ID token; email users confirm with password.
-      let stepUp = {};
-      if (userType !== 'google') {
-        stepUp = { password: stepUpPassword };
-      } else if (requestFreshGoogleToken) {
-        stepUp = { idToken: await requestFreshGoogleToken() };
-      }
+      const stepUp = await buildStepUp();
 
       // Update vault with new bio blob
       await rekeyVault(token, {
@@ -90,6 +125,7 @@
 
       success = 'Biometric added successfully';
       stepUpPassword = '';
+      vaultPassword = '';
       onUpdated();
     } catch (err) {
       error = err.message || 'Failed to add biometric';
@@ -112,21 +148,72 @@
         recoveryBytes = await wordsToRecoveryKey(recoveryInput.trim().split(/\s+/));
       }
 
+      if (typeof vaultInfo.prfSalt !== 'string') throw new Error('Vault is missing its PRF salt');
       const prfSalt = b64ToBuf(vaultInfo.prfSalt);
       const wrappingKey = await deriveKeyFromRecovery(recoveryBytes, prfSalt);
 
       const { encryptedMasterKey } = await unlockVault(token, 'recovery');
       const wrappedBuf = b64ToBuf(encryptedMasterKey);
-      const mk = await unwrapMasterKey(wrappedBuf, wrappingKey);
 
-      // Recovery unlock succeeded — pass the key up so vault is unlocked
-      onClose();
-      // Use the onUnlocked callback pattern — but here we go through onRequestUnlock's pending flow
-      // For now, just close and let the user know
-      success = 'Recovery key verified';
-      mode = 'main';
+      // Two copies: the non-extractable one the app keeps for the session, and a
+      // throwaway extractable one so the user can immediately set a new password.
+      const mk = await unwrapMasterKey(wrappedBuf, wrappingKey);
+      rekeyKey = await unwrapMasterKey(wrappedBuf, wrappingKey, true);
+
+      // Recovery unlock succeeded — hand the key up so the vault is actually open…
+      onUnlocked(mk);
+
+      // …then keep this panel open on a set-a-new-password step, otherwise the
+      // user is back in the same dead end on their next visit.
+      recoveryInput = '';
+      recoveryFile = null;
+      newPassword = '';
+      confirmNewPassword = '';
+      error = '';
+      success = 'Vault unlocked with recovery key — set a new password now';
+      mode = 'set_password';
     } catch (err) {
       error = err.message || 'Recovery key invalid';
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** Wrap the master key under a freshly derived password key and store it. */
+  async function handleSetNewPassword(e) {
+    e.preventDefault();
+    if (newPassword.length < 12) { error = 'Password must be at least 12 characters'; return; }
+    if (newPassword !== confirmNewPassword) { error = 'Passwords do not match'; return; }
+
+    loading = true;
+    error = '';
+    try {
+      // In 'change_password' mode the current vault password is the only way to
+      // get raw key bytes; in 'set_password' the recovery unwrap already gave us one.
+      const mk = rekeyKey ?? await unwrapExtractableWithVaultPassword(vaultPassword);
+
+      const pbkdf2Salt = crypto.getRandomValues(new Uint8Array(32));
+      const pwWrappingKey = await deriveKeyFromPassword(newPassword, pbkdf2Salt);
+      const wrappedPw = await wrapMasterKey(mk, pwWrappingKey);
+
+      const stepUp = await buildStepUp();
+
+      await rekeyVault(token, {
+        encryptedMasterKeyPw: bufToB64(wrappedPw),
+        pbkdf2Salt: bufToB64(pbkdf2Salt),
+        ...stepUp,
+      });
+
+      rekeyKey = null;
+      newPassword = '';
+      confirmNewPassword = '';
+      vaultPassword = '';
+      stepUpPassword = '';
+      success = 'Vault password updated';
+      onUpdated();
+      onClose();
+    } catch (err) {
+      error = err.message || 'Could not set the new password';
     } finally {
       loading = false;
     }
@@ -219,13 +306,17 @@
             <p class="hint">Checking for biometric support…</p>
           {:else}
             <p class="hint">Add fingerprint or Face ID to unlock your vault faster on this device.</p>
+            <div class="field">
+              <label class="field-label" for="bio-vault-pw">Vault password</label>
+              <input id="bio-vault-pw" type="password" bind:value={vaultPassword} placeholder="Your vault password" autocomplete="current-password" disabled={loading} />
+            </div>
             {#if userType !== 'google'}
               <div class="field">
-                <label class="field-label" for="bio-step-up-pw">Confirm password to continue</label>
+                <label class="field-label" for="bio-step-up-pw">Confirm account password to continue</label>
                 <input id="bio-step-up-pw" type="password" bind:value={stepUpPassword} placeholder="Your password" autocomplete="current-password" disabled={loading} />
               </div>
             {/if}
-            <button class="btn-primary" disabled={loading || !canAddBio || (userType !== 'google' && !stepUpPassword)} onclick={handleAddBiometric}>
+            <button class="btn-primary" disabled={loading || !canAddBio || !vaultPassword || (userType !== 'google' && !stepUpPassword)} onclick={handleAddBiometric}>
               {loading ? 'REGISTERING…' : 'ADD BIOMETRIC'}
             </button>
           {/if}
@@ -238,6 +329,12 @@
 
       {#if success}
         <p class="success">{success}</p>
+      {/if}
+
+      {#if vaultInfo.hasPw}
+        <button class="settings-link" type="button" onclick={() => { mode = 'change_password'; error = ''; success = ''; rekeyKey = null; vaultPassword = ''; newPassword = ''; confirmNewPassword = ''; stepUpPassword = ''; }}>
+          Change vault password
+        </button>
       {/if}
 
       {#if vaultInfo.hasRecovery}
@@ -278,6 +375,52 @@
 
         <button type="submit" class="btn-primary" disabled={loading || (!recoveryInput.trim() && !recoveryFile)}>
           {loading ? 'UNLOCKING…' : 'RESTORE ACCESS'}
+        </button>
+      </form>
+
+    {:else if mode === 'set_password' || mode === 'change_password'}
+      <div class="header">
+        <span class="title">{mode === 'set_password' ? 'SET NEW PASSWORD' : 'CHANGE VAULT PASSWORD'}</span>
+        <button class="close-btn" type="button" onclick={() => { mode = 'main'; error = ''; rekeyKey = null; vaultPassword = ''; newPassword = ''; confirmNewPassword = ''; }} aria-label="Back">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M8 2L4 6l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      {#if success}
+        <p class="success">{success}</p>
+      {/if}
+
+      <form onsubmit={handleSetNewPassword} class="pw-form">
+        {#if mode === 'change_password'}
+          <div class="field">
+            <label class="field-label" for="vault-pw-current">Current vault password</label>
+            <input id="vault-pw-current" type="password" bind:value={vaultPassword} placeholder="Current vault password" autocomplete="current-password" disabled={loading} />
+          </div>
+        {/if}
+
+        <div class="field">
+          <label class="field-label" for="vault-pw-new">New vault password (min 12 characters)</label>
+          <input id="vault-pw-new" type="password" bind:value={newPassword} placeholder="New vault password" autocomplete="new-password" disabled={loading} />
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="vault-pw-confirm">Confirm new password</label>
+          <input id="vault-pw-confirm" type="password" bind:value={confirmNewPassword} placeholder="Repeat new password" autocomplete="new-password" disabled={loading} />
+        </div>
+
+        {#if userType !== 'google'}
+          <div class="field">
+            <label class="field-label" for="vault-pw-step-up">Confirm account password to continue</label>
+            <input id="vault-pw-step-up" type="password" bind:value={stepUpPassword} placeholder="Your password" autocomplete="current-password" disabled={loading} />
+          </div>
+        {/if}
+
+        {#if error}
+          <p class="error">{error}</p>
+        {/if}
+
+        <button type="submit" class="btn-primary" disabled={loading || !newPassword || !confirmNewPassword || (mode === 'change_password' && !vaultPassword) || (userType !== 'google' && !stepUpPassword)}>
+          {loading ? 'SAVING…' : 'SAVE PASSWORD'}
         </button>
       </form>
 

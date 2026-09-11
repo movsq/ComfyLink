@@ -1,10 +1,11 @@
 <script>
-  import { onDestroy, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import { decodeResultPayload, decryptPayload } from '../lib/crypto.js';
-  import { encryptBlob, bufToB64, b64ToBuf } from '../lib/vault-crypto.js';
+  import { encryptBlob, bufToB64 } from '../lib/vault-crypto.js';
   import { saveResult } from '../lib/api.js';
+  import { dialog } from './dialog.js';
 
-  let { result, aesKey, onDone, onClose, token = null, masterKey = null, userType = 'google', onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null, onUseAsInput = null, initialSaved = false, onSaved = () => {}, thumbnailB64 = null } = $props();
+  let { result, aesKey, onDone, onClose, token = null, masterKey = null, canSaveToVault = false, onRequestVaultUnlock = null, isGhost = false, stackOffset = 0, onImageReady = null, onUseAsInput = null, initialSaved = false, onSaved = () => {}, thumbnailB64 = null } = $props();
 
   let imageUrl = $state(null);
   let imageBytes = $state(null); // raw image bytes, kept alongside imageUrl for save
@@ -74,9 +75,10 @@
     decrypt();
   });
 
-  onDestroy(() => {
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-  });
+  // NOTE: this component deliberately does NOT revoke `imageUrl` on destroy.
+  // The same string is handed to App via onImageReady and outlives this modal on
+  // the COMPLETED shelf, so App is the single owner of its lifetime — it revokes
+  // in handleDone, the shelf expiry timer, and clearResultCards.
 
   async function decrypt() {
     if (_decryptInFlight) return; // prevent concurrent decrypts
@@ -153,17 +155,22 @@
       // Encrypt full image
       const { ciphertext: encFull, iv: ivFull } = await encryptBlob(masterKey, fullBuf);
 
-      // Encrypt thumbnail if one was relayed from the PC
+      // Encrypt thumbnail if one was relayed from the PC.
+      // The PC encrypts it under the same per-job result key as the full image
+      // (its own IV), so the relay never sees the preview — decrypt it here
+      // before re-wrapping it under the vault master key.
       let encryptedThumb = null;
       let ivThumb = null;
       if (thumbnailB64) {
         try {
-          const thumbBytes = b64ToBuf(thumbnailB64);
+          const { iv: thumbIv, ciphertext: thumbCt } = decodeResultPayload(thumbnailB64);
+          const thumbBytes = await decryptPayload(aesKey, thumbIv, thumbCt);
           const { ciphertext: encT, iv: ivT } = await encryptBlob(masterKey, thumbBytes);
           encryptedThumb = bufToB64(encT);
           ivThumb = bufToB64(ivT);
         } catch {
-          // Non-fatal: save without thumbnail if encryption fails
+          // Non-fatal: save without a thumbnail if it cannot be decrypted
+          console.warn('[result] Thumbnail could not be decrypted — saving without one');
         }
       }
 
@@ -199,6 +206,7 @@
   role="dialog"
   aria-modal="true"
   tabindex="-1"
+  use:dialog={{ onEscape: onClose, active: !isGhost }}
   onclick={(e) => { if (!isGhost && e.target === e.currentTarget) onClose(); }}
 >
   <div class="modal">
@@ -232,7 +240,7 @@
 
       <!-- Action bar below the image -->
       <div class="action-bar">
-        {#if userType === 'google'}
+        {#if canSaveToVault}
           {#if saved}
             <span class="overlay-pill overlay-pill-saved">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
