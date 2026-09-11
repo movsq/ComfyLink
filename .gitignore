@@ -48,3 +48,5 @@ CLAUDE.md
 .claude/
 .claude_trash/
 .claude*
+# ── Local trash (never delete, never push) ────────────────────────────────────
+.local_trash/
