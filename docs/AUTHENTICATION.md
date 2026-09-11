@@ -4,7 +4,7 @@
 
 Users can authenticate in three ways:
 
-- **Google OAuth** — ID token flow; no server-side redirect needed
+- **Google OAuth** — ID token flow; no server-side redirect needed. `GOOGLE_CLIENT_ID` **must** be set; when it is not, `POST /auth/google` returns `503 google_login_disabled` rather than accepting tokens without an audience check.
 - **Email + password** — register with an email address and a password (argon2id-hashed server-side)
 - **Access code** — guest mode using a `job_access` invite code; no persistent account
 
@@ -38,7 +38,8 @@ New accounts start as `pending` **unless** the user supplies a `registration` in
 
 - Requires `email` and `password`.
 - Brute-force protection: up to **15 failed attempts per IP** within any 15-minute window; thereafter returns `429` until the window clears.
-- Invalid credentials always return `401 invalid_credentials` regardless of whether the email exists, to prevent account enumeration.
+- Invalid credentials always return `401 invalid_credentials` regardless of whether the email exists, to prevent account enumeration. The server performs a dummy argon2 verification on the not-found path so response timing does not differ either.
+- Note that `POST /auth/register` **does** disclose whether an email is already registered (`409`). This is a deliberate usability trade-off; it is covered by the shared per-IP rate limiter below.
 - Google-only accounts (no password set) return the same `401` response.
 
 ### Password policy
@@ -115,7 +116,7 @@ All users are subject to the Terms of Service regardless of how they authenticat
 
 `TOS_VERSION` is derived from a hash of `server/src/tos-content.js`, so it is treated as an opaque value. Current acceptance means `users.tos_version === TOS_VERSION`, not `>=`.
 
-**Access code users** are bound by the same terms upon first use of the Service. The client still shows the modal, but acceptance is not persisted server-side because code-user sessions do not have a `users` row. Admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
+**Access code users** are bound by the same terms upon first use of the Service. The client shows the modal, blocks generation until it is accepted, and treats a decline as a logout; acceptance is not persisted server-side because code-user sessions do not have a `users` row, so the server cannot enforce it for them. Admins issuing `job_access` codes are expected to make recipients aware of the terms before distribution.
 
 The terms reference Czech Republic applicable law:
 

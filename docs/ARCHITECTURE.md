@@ -8,7 +8,7 @@
 [Phone browser] ──── WSS encrypted ────▶ [VPS relay] ──── WSS encrypted ────▶ [PC + ComfyUI]
 ```
 
-The relay is **intentionally blind** — it only forwards opaque encrypted blobs. No prompts, images, or results are visible to it at any point.
+The relay is **intentionally blind** — it only forwards opaque encrypted blobs. No prompts, images, results, or thumbnails are visible to it at any point. What it does see is metadata: who submitted, when, from which IP, and per-job progress counters (step `value`/`max` and the ComfyUI node id) — see [PRIVACY.md](PRIVACY.md).
 
 ---
 
@@ -43,7 +43,7 @@ The server maintains an in-memory FIFO queue so multiple jobs can be submitted w
 
 1. Job submitted → enters queue as **pending**
 2. If PC is connected and idle, the server dispatches the next pending job immediately
-3. On completion (or error/cancel), the server dispatches the next pending job
+3. On completion (or error/cancel), the server dispatches the next pending job. If the PC disconnects while a job is `processing`, that job is reset to `pending` and re-dispatched when the PC reconnects.
 4. Every state change broadcasts a `queue_update` to all connected phone sockets
 
 ### Limits
@@ -70,19 +70,23 @@ The submit button shows the slot count: **ADD TO QUEUE (x/3)**; disabled at limi
 
 ### `queue_update` message shape
 
+Every connected phone socket receives the aggregate fields. Only the socket that owns jobs additionally receives `queue` and `activeJobId`, so one user never learns another user's job ids.
+
 ```json
 {
   "type": "queue_update",
+  "queueSize": 2,
+  "avgDuration": 45,
+  "maxQueuePerUser": 3,
   "queue": [
-    { "jobId": "...", "position": 1, "status": "processing", "isYours": true },
-    { "jobId": "...", "position": 2, "status": "pending",    "isYours": false }
+    { "jobId": "...", "position": 1, "status": "processing" },
+    { "jobId": "...", "position": 2, "status": "pending" }
   ],
-  "activeJobId": "abc123",
-  "avgDuration": 45
+  "activeJobId": "abc123"
 }
 ```
 
-`isYours` is set per-recipient. `avgDuration` is the rolling average in seconds (defaults to 60).
+`avgDuration` is the rolling average in seconds of the last 10 jobs, measured from submit to completion (so it includes queue wait), defaulting to 60. `maxQueuePerUser` mirrors `MAX_QUEUE_PER_USER` so the UI slot counter follows the server setting.
 
 ---
 
@@ -95,14 +99,16 @@ The relay is a **blind relay** — it cannot read job payloads or results.
 | Layer | Algorithm |
 |-------|-----------|
 | Key exchange | ECDH P-256 (chosen over X25519 for consistent mobile browser support) |
-| Key derivation | HKDF-SHA-256 (`info = "flux2-klein-v1"`) |
+| Key derivation | HKDF-SHA-256, 32-byte zero salt, two keys per job split by direction: `info = "flux2-klein-v1:job"` (phone → PC) and `info = "flux2-klein-v1:result"` (PC → phone) |
 | Symmetric encryption | AES-256-GCM |
 
-**Per-job forward secrecy:** The phone generates a fresh ephemeral keypair for every job. Past jobs remain protected even if a session key is later compromised.
+**Per-job key separation:** The phone generates a fresh ephemeral keypair for every job, so compromising one job's session key exposes only that job. This is one-sided ephemeral ECDH against the PC's long-lived static key, so it is *not* full forward secrecy: an adversary who records relay traffic and later obtains `private_key.pem` can decrypt every recorded job. Keep that key off shared or synced storage (`keygen.py` warns about this).
 
 **Wire format (job payload):** `[2-byte key length][ephemeral SPKI pubkey][12-byte IV][ciphertext]`
 
 **Wire format (result payload):** `[12-byte IV][ciphertext]`
+
+**Wire format (result thumbnail):** same `[12-byte IV][ciphertext]` envelope under the same result key with its own IV; carried in the `thumbnail` field of the `result` message.
 
 ### Vault encryption (client-side)
 
@@ -111,7 +117,7 @@ The relay is a **blind relay** — it cannot read job payloads or results.
 | Master key | Random 256-bit | Generated in browser, never sent in plaintext |
 | Biometric wrapping | WebAuthn PRF + HKDF-SHA-256 → AES-KW | PRF salt stored server-side |
 | Password wrapping | PBKDF2-SHA-256 (600 000 iter) → AES-KW | PBKDF2 salt stored server-side |
-| Recovery wrapping | Raw AES-KW | Key encoded as 24 BIP-39 words (256 bits + 8-bit checksum) |
+| Recovery wrapping | HKDF-SHA-256 (`info = "vault-recovery-v1"`) → AES-KW | Random 256-bit recovery key encoded as 24 BIP-39 words (256 bits + 8-bit checksum) |
 | Result encryption | AES-256-GCM | IV stored alongside ciphertext; master key used directly |
 
 ### PC secret verification

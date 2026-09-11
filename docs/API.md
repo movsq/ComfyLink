@@ -10,7 +10,7 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/auth/google` | — | Exchange Google ID token (+ optional invite code) for JWT |
+| `POST` | `/auth/google` | — | Exchange Google ID token (+ optional invite code) for JWT. `503 google_login_disabled` when `GOOGLE_CLIENT_ID` is unset. |
 | `GET` | `/auth/me` | JWT | Return current user info |
 | `POST` | `/auth/tos` | active | Record current Terms of Service acceptance |
 | `POST` | `/auth/code` | — | Exchange a `job_access` invite code for a limited JWT. Returns `403` when `ACCESS_CODES_ENABLED=false`. |
@@ -27,6 +27,7 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 | `PATCH` | `/codes/:id` | admin | Edit code uses remaining or expiry |
 | `GET` | `/admin/users` | admin | List all users (filterable by status), includes `usesRemaining` per user |
 | `PATCH` | `/admin/users/:id` | admin | Change a user's `status` (`active`/`suspended`) and/or `usesRemaining` (`null`=unlimited, 0–999999) |
+| `DELETE` | `/admin/users/:id` | admin | Delete a user account and everything tied to it (stored results, vault keys, email auth, invite codes they issued, audit rows) in one transaction. Cannot target yourself or another admin. |
 | `POST` | `/vault/setup` | active | Initialise vault with wrapped key blobs |
 | `GET` | `/vault/info` | active | Get vault configuration and salts |
 | `POST` | `/vault/unlock` | active | Retrieve a wrapped master key blob |
@@ -49,7 +50,7 @@ All WebSocket message payloads are JSON. The `payload` field is a base64 binary 
 | PC → Server | `{ type: "pubkey", publicKey: "<b64 SPKI>" }` — once after auth |
 | Server → PC | `{ type: "job", jobId: "...", payload: "<b64>" }` |
 | PC → Server | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` |
-| PC → Server | `{ type: "result", jobId: "...", payload: "<b64>", thumbnail?: "<b64 webp>" }` — server validates and relays thumbnail to browser; browser encrypts before saving |
+| PC → Server | `{ type: "result", jobId: "...", payload: "<b64>", thumbnail?: "<b64>" }` — `thumbnail` is `[12-byte IV][AES-GCM ciphertext]` of the 200 px WebP, encrypted on the PC with the same per-job result key as `payload`. The server checks only base64 shape and length and relays it opaque. |
 | PC → Server | `{ type: "error", jobId: "...", message: "..." }` |
 | Server → PC | `{ type: "cancel", jobId: "..." }` |
 
@@ -64,20 +65,20 @@ Authentication uses a **first-message handshake** — the JWT is never sent in t
 | Phone → Server | `{ type: "auth", token: "<jwt>" }` — **must be the very first message** |
 | Server → Phone | `{ type: "auth_ok" }` — connection accepted; all subsequent messages are processed |
 | Server → Phone | `{ type: "auth_failed", reason: "..." }` — followed immediately by close |
-| Phone → Server | `{ type: "submit", payload: "<b64>" }` |
-| Server → Phone | `{ type: "queued", jobId: "..." }` |
+| Phone → Server | `{ type: "submit", payload: "<b64>", clientToken?: "..." }` — `clientToken` is an optional opaque string the client uses to match the ack to the right in-flight submit |
+| Server → Phone | `{ type: "queued", jobId: "...", clientToken?: "..." }` — echoes `clientToken` when supplied |
 | Server → Phone | `{ type: "queue_update", queueSize, avgDuration, maxQueuePerUser, queue?: [...], activeJobId?: "..." }` — broadcast on every queue change; `queue` and `activeJobId` are included only for the socket that owns those jobs; all other sockets receive aggregate counts only |
 | Server → Phone | `{ type: "job_recovery", jobs: [...] }` — sent on reconnect for recoverable non-code-user jobs |
 | Server → Phone | `{ type: "no_pc" }` — PC not connected |
 | Server → Phone | `{ type: "progress", jobId: "...", value: N, max: M, node: "..." }` — sent only to the job-owner socket |
 | Server → Phone | `{ type: "progress", value: N, max: M }` — sent to all other connected sockets (no job identifier) |
-| Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>", thumbnail?: "<b64 webp>" }` — sent only to the job-owner socket; thumbnail is the raw WebP for client-side encryption before saving |
+| Server → Phone | `{ type: "result", jobId: "...", payload: "<b64>", thumbnail?: "<b64>" }` — sent only to the job-owner socket; `thumbnail` is encrypted under the per-job result key (same envelope as `payload`); the browser decrypts it and re-encrypts it with the vault master key before saving |
 | Server → Phone | `{ type: "error", jobId: "...", message: "..." }` |
 | Server → Phone | `{ type: "error", message: "queue_full" }` — user already has 3 jobs queued |
 | Server → Phone | `{ type: "session_invalid", reason: "..." }` — session became invalid after connect |
 | Phone → Server | `{ type: "cancel", jobId: "..." }` — only succeeds for jobs owned by this session |
 | Server → Phone | `{ type: "code_status", usesRemaining: N\|null }` — code_user sessions only |
-| Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — Google user quota changed |
+| Server → Phone | `{ type: "uses_updated", usesRemaining: N\|null }` — account quota changed (decremented on submit, refunded when a job errors or is cancelled) |
 | Phone → Server | `{ type: "ping" }` — application-level keepalive (sent every 20 s) |
 | Server → Phone | `{ type: "pong" }` — keepalive reply |
 
